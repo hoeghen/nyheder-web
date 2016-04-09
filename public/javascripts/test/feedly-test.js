@@ -1,9 +1,8 @@
 var chai = require ('chai')
-var chailike = require('chai-like')
-chai.use(chailike)
-
-
 var feedly = require('../feedly')
+
+
+
 describe('feedly', function() {
     describe('getProviders', function () {
         it('should return a list of providers', function (done) {
@@ -35,6 +34,7 @@ describe('feedly', function() {
     });
 
     describe('getAllNews', function () {
+        this.timeout(5000);
         it('should return a list of all news', function (done) {
             feedly.getAllNews(function(response){
                 var news = JSON.parse(response)

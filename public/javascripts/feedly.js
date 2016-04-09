@@ -1,4 +1,6 @@
 /**
+ * Module that handles calls to feedly
+ *
  * Created by cha on 4/2/2016.
  */
 var request = require('request');
@@ -6,7 +8,7 @@ var request = require('request');
 
 var getProviders = function(callback){
 
-    request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count=50', function(error, response, body){
+    request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count=20', function(error, response, body){
         if(error) {
             console.log(error);
         }else{
@@ -60,7 +62,7 @@ function paparseEntries(provider,result) {
 
 var getProviderNews = function(provider,callback){
     var feedid = provider.feedId;
-    request('https://cloud.feedly.com//v3/streams/contents?streamId='+feedid+'&count=20', function(error, response, result){
+    request('https://cloud.feedly.com//v3/streams/contents?streamId='+feedid+'&count=10', function(error, response, result){
         if(error) {
             console.log(error);
         }else{
@@ -72,19 +74,25 @@ var getProviderNews = function(provider,callback){
 };
 
 
-var getAllNews = function(callback){
+
+var getAllNews = function (callback) {
+
+    var currentTimeStamp = new Date()
+    console.log("request time " + timeStamp)
 
 
-    getProviders(function(result){
-        var allList =  [];
+    getProviders(function (result) {
+        var allList = [];
         var providers = JSON.parse(result)
         var count = providers.length;
 
-        providers.forEach(function(provider){
-            getProviderNews(provider,function(list){
-               allList.push(list);
-                count = count-1;
-                if(count == 0){
+        providers.forEach(function (provider) {
+            getProviderNews(provider, function (list) {
+                count = count - 1;
+                if (list.length > 0) {
+                    allList.push(list);
+                }
+                if (count == 0) {
                     callback(JSON.stringify(allList))
                 }
             })
@@ -93,6 +101,7 @@ var getAllNews = function(callback){
     })
 
 };
+
 
 
 exports.getProviders = getProviders;
