@@ -23,7 +23,7 @@ describe('feedly', function() {
             feedly.getProviders(function(response){
                 var providers = JSON.parse(response)
                 var provider = providers[0]
-                feedly.getProviderNews(provider,function(providerNews){
+                feedly.getProviderNews(provider,null,function(providerNews){
                     var providerNewsList = JSON.parse(providerNews)
                     chai.expect(providerNewsList).to.be.a('array');
                     done1()
@@ -39,7 +39,16 @@ describe('feedly', function() {
             feedly.getAllNews(function(response){
                 var news = JSON.parse(response)
                 chai.expect(news).to.be.a('array');
-                console.log(news)
+                done()
+            })
+        });
+    });
+    describe('getAllNews2', function () {
+        this.timeout(5000);
+        it('should return a list of all news', function (done) {
+            feedly.getAllNews(function(response){
+                var news = JSON.parse(response)
+                chai.expect(news).to.be.a('array');
                 done()
             })
         });

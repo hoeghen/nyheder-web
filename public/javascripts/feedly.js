@@ -32,11 +32,6 @@ var getProviders = function(callback){
         });
         return JSON.stringify(providers)
     }
-//    http.get("https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count=50",function(){
-
-
-
-//https://cloud.feedly.com//v3/streams/contents?streamId=feed/http://borsen.dk/services/newsfeed/rss/&count=20
 };
 
 
@@ -60,26 +55,64 @@ function paparseEntries(provider,result) {
     return JSON.stringify(entries)
 }
 
-var getProviderNews = function(provider,callback){
+var getProviderNews = function(provider,newerThan,callback){
     var feedid = provider.feedId;
-    request('https://cloud.feedly.com//v3/streams/contents?streamId='+feedid+'&count=10', function(error, response, result){
+    if(newerThan != null){
+        request('https://cloud.feedly.com/v3/streams/contents?streamId='+feedid+'&count=10&newerThan='+newerThan, handleResult)
+    }else{
+        request('https://cloud.feedly.com/v3/streams/contents?streamId='+feedid+'&count=10', handleResult)
+    }
+
+    function handleResult (error,response,result)
+    {
         if(error) {
             console.log(error);
         }else{
             var entries = paparseEntries(provider,result);
             callback(entries)
         }
-    });
+    }
 
-};
+}
 
 
 
-var getAllNews = function (callback) {
 
-    var currentTimeStamp = new Date()
-    console.log("request time " + timeStamp)
+var cache = {}
+var maxAge = 1000*60*5
+var maxNumberOfNews = 500
 
+var getAllNews = function(callBack){
+
+    var items
+    // only call for new news every maxAge minutes or first time
+
+
+    function isToOld() {
+        return cache.lastUpdate != null && Date.now() - cache.lastUpdate > maxAge;
+    }
+
+    function firstTime() {
+        return cache.lastUpdate == undefined;
+    }
+
+    if(isToOld() || firstTime()){
+            getAllNewsFrom(null,function(list){
+                cache.lastUpdate = Date.now 
+                cache.data = list;
+                console.log("fresh result")
+                callBack(list);
+            })
+        }else {
+            console.log("cached result")
+            callBack(cache.data)
+    }
+    
+
+}
+
+
+var getAllNewsFrom = function (newerThan,callback) {
 
     getProviders(function (result) {
         var allList = [];
@@ -87,7 +120,7 @@ var getAllNews = function (callback) {
         var count = providers.length;
 
         providers.forEach(function (provider) {
-            getProviderNews(provider, function (list) {
+            getProviderNews(provider,newerThan, function (list) {
                 count = count - 1;
                 if (list.length > 0) {
                     allList.push(list);
