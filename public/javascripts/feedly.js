@@ -3,17 +3,11 @@
  *
  * Created by cha on 4/2/2016.
  */
-var request = require('request');
-
 
 var getProviders = function(callback){
 
-    request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count=20', function(error, response, body){
-        if(error) {
-            console.log(error);
-        }else{
+    request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count=20', function(body){
             callback(parse(body))
-        }
     });
 
     function parse(body){
@@ -49,7 +43,9 @@ function paparseEntries(provider,result) {
                 newsItem.visual = item.visual.url;
             newsItem.published = item.published;
             newsItem.provider = provider.name;
-            entries.push(newsItem)
+           if(item.visual){
+               entries.push(newsItem)
+           }
         });
     }
     return JSON.stringify(entries)
@@ -63,19 +59,26 @@ var getProviderNews = function(provider,newerThan,callback){
         request('https://cloud.feedly.com/v3/streams/contents?streamId='+feedid+'&count=10', handleResult)
     }
 
-    function handleResult (error,response,result)
+    function handleResult (result)
     {
-        if(error) {
-            console.log(error);
-        }else{
-            var entries = paparseEntries(provider,result);
-            callback(entries)
-        }
+        var entries = paparseEntries(provider,result);
+        callback(entries)
     }
 
 }
 
-
+var request = function (url,callback){
+    var xmlhttp = new XMLHttpRequest();
+    xmlhttp.onreadystatechange = function() {
+        if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+            callback(xmlhttp.responseText);
+        }else{
+            console.log("failed request " +url)
+        }
+    };
+    xmlhttp.open("GET", url, true);
+    xmlhttp.send();    
+}
 
 
 var cache = {}
@@ -123,7 +126,8 @@ var getAllNewsFrom = function (newerThan,callback) {
             getProviderNews(provider,newerThan, function (list) {
                 count = count - 1;
                 if (list.length > 0) {
-                    allList.push(list);
+                    var listArray = JSON.parse(list)
+                    allList.push.apply(allList,listArray);
                 }
                 if (count == 0) {
                     callback(JSON.stringify(allList))
@@ -137,6 +141,4 @@ var getAllNewsFrom = function (newerThan,callback) {
 
 
 
-exports.getProviders = getProviders;
-exports.getProviderNews = getProviderNews;
-exports.getAllNews = getAllNews;
+
