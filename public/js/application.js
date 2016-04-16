@@ -8,7 +8,6 @@ Abstract:
 This is the entry point to the application and handles the initial loading of required JavaScript files.
 */
 
-var resourceLoader;
 
 /**
  * @description The onLaunch callback is invoked after the application JavaScript 
@@ -21,6 +20,13 @@ var resourceLoader;
  * The location attribute is automatically added to the object and represents 
  * the URL that was used to retrieve the application JavaScript.
  */
+String.prototype.replaceAll = function(search, replace) {
+    if (replace === undefined) {
+        return this.toString();
+    }
+    return this.split(search).join(replace);
+}
+
 App.onLaunch = function(options) {
     var javascriptFiles = [
         `${options.BASEURL}js/ResourceLoader.js`,
@@ -39,9 +45,19 @@ App.onLaunch = function(options) {
      */
     evaluateScripts(javascriptFiles, function(success) {
         if (success) {
-            Feedly.getAllNews(function(news){
+
+        Feedly.getAllNews(function(news){
+            
+            function removeAmp(result) {
+                return result.replaceAll("&","&amp;")
+            }
+            console.log("news" +news)
                 var finalDoc = Templater.createDoc(JSON.parse(news))
-                navigationDocument.pushDocument(finalDoc);
+                console.log("unencoded"+encodedDoc)    
+                var encodedDoc = removeAmp(finalDoc)
+                console.log("encoded"+encodedDoc)
+                var doc = Presenter.makeDocument(encodedDoc);
+                navigationDocument.pushDocument(doc);
             })
         } else {
             /*

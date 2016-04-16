@@ -110,7 +110,7 @@
 //             console.log("cached result")
 //             callBack(cache.data)
 //     }
-//    
+//   
 //
 // }
 //
@@ -139,6 +139,6 @@
 //
 // };
 //
-//
+// module.exports.Feedly = Feedly
 //
 //
