@@ -9,12 +9,17 @@ var Feedly = {
         lastUpdate:undefined
     },
     maxAge: 1000 * 60 * 5,
-    maxNews: 20,
-    maxProviders:2,
+    maxNews: 100,
+    maxProviders:10,
+
+    urlCache: {
+
+    },
+
 
     getProviders: function (callback) {
 
-        request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count='+maxProviders, function (body) {
+        this.request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count='+this.maxProviders, function (body) {
             callback(parse(body))
         });
 
@@ -37,21 +42,33 @@ var Feedly = {
     },
 
     parseEntries: function (provider, result) {
+        function stripHtml(html){
+            return html.replace(/<(?:.|\n)*?>/gm, '');
+        }
         var parsed = JSON.parse(result);
         var entries = [];
         if (parsed.items) {
             parsed.items.forEach(function (item) {
+                console.log("parsing item ="+item)
                 var newsItem = {};
                 newsItem.title = item.title;
-                if (item.summary)
-                    newsItem.summary = item.summary.content;
+                if (item.summary){
+                    var wrapped = "<![CDATA["+item.summary.content+"]]>";
+                    var strippedContent = stripHtml(item.summary.content);
+                    newsItem.summary = strippedContent
+                }
                 newsItem.content = item.content;
-                if (item.visual)
+                if (item.visual && item.visual.url){
                     newsItem.visual = item.visual.url;
+                }
+
+
                 newsItem.published = item.published;
                 newsItem.provider = provider.name;
-                if (item.visual) {
-                    entries.push(newsItem)
+                if (newsItem.visual  && newsItem.visual.length > 10) {
+                    if(newsItem.summary && newsItem.summary.length > 10)
+                        entries.push(newsItem)
+
                 }
             });
         }
@@ -59,15 +76,16 @@ var Feedly = {
     },
 
     getProviderNews: function (provider, newerThan, callback) {
+        var self = this
         var feedid = provider.feedId;
         if (newerThan != null) {
-            request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count=5&newerThan=' + newerThan, handleResult)
+            this.request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count='+this.maxNews+'&newerThan=' + newerThan, handleResult)
         } else {
-            request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count=5', handleResult)
+            this.request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count='+this.maxNews, handleResult)
         }
 
         function handleResult(result) {
-            var entries = paparseEntries(provider, result);
+            var entries = self.parseEntries(provider, result);
             callback(entries)
         }
 
@@ -87,48 +105,44 @@ var Feedly = {
     },
 
     getAllNews: function (callBack) {
-
+        var self = this
         var items
         // only call for new news every maxAge minutes or first time
 
-        console.log("feedcache="+this.feedcache.lastUpdate)
-
         function isToOld() {
-            return this.feedcache.lastUpdate != null && Date.now() - this.feedcache.lastUpdate > this.maxAge;
+            return self.feedcache.lastUpdate != null && Date.now() - self.feedcache.lastUpdate > this.maxAge;
         }
 
         function firstTime() {
-            if(!this.feedcache.lastUpdate){
+            if(!self.feedcache.lastUpdate){
                 return true
             }else{
                 return false
             }
         }
 
-        if (firstTime() ||  isToOld() ) {
-            getAllNewsFrom(null, function (list) {
-                this.feedcache.lastUpdate = Date.now
-                this.feedcache.data = list;
-                console.log("fresh result")
+        if (true ||firstTime() ||  isToOld() ) {
+            this.getAllNewsFrom(null, function (list) {
+                self.feedcache.lastUpdate = Date.now
+                self.feedcache.data = list;
                 callBack(list);
             })
         } else {
-            console.log("cached result")
-            callBack(this.feedcache.data)
+            callBack(self.feedcache.data)
         }
 
 
     },
 
     getAllNewsFrom: function (newerThan, callback) {
-
-        getProviders(function (result) {
+        var self = this
+        this.getProviders(function (result) {
             var allList = [];
             var providers = JSON.parse(result)
             var count = providers.length;
 
             providers.forEach(function (provider) {
-                getProviderNews(provider, newerThan, function (list) {
+                self.getProviderNews(provider, newerThan, function (list) {
                     count = count - 1;
                     if (list.length > 0) {
                         var listArray = JSON.parse(list)
@@ -144,10 +158,6 @@ var Feedly = {
 
     }
 }
-
-
-
-
 
 
 
