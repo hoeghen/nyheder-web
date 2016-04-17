@@ -1,28 +1,28 @@
 
 var Templater = {
     createDoc : function(data){
-
-        var lockups
+        var self = this
+        var lockups = ""
 
         data.forEach(function(item){
-            var lockup = construct(item.visual,item.title,item.summary)
+            var lockup = self.construct(item.visual,item.title,item.summary,item.provider)
             lockups = lockups+lockup
         })
-
-        return fullDoc(lockups)
+        
+        return this.fullDoc(lockups)
     },
 
-    construct : function(image,title,summary){
+    construct : function(image,title,summary,provider){
         var itemXML =
             `<lockup>
-                <img src="${image}" width="620" height="419" />
+                <img src="${image}" width="620" height="319" />
                 <title>${title}</title>
-                <description>${summary}</description>
+                <description allowsZooming="true">${summary} - ${provider}</description>
              </lockup>`
         return itemXML
     },
 
-    fullDoc : function(lockups) { return `<?xml version="1.0" encoding="UTF-8" ?>
+    fullDoc : function(lockups,provider) { return `<?xml version="1.0" encoding="UTF-8" ?>
         <document>
            <showcaseTemplate>
               <background>
