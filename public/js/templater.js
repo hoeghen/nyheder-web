@@ -1,4 +1,4 @@
-
+// version 2
 var Templater = {
     createDoc : function(data){
         var self = this
@@ -15,7 +15,7 @@ var Templater = {
     construct : function(image,title,summary,provider){
         var itemXML =
             `<lockup>
-                <img src="${image}" width="620" height="319" />
+                <img src="${image}" width="1220" />
                 <title>${title}</title>
                 <description allowsZooming="true">${summary} - ${provider}</description>
              </lockup>`

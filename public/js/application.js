@@ -32,8 +32,8 @@ App.onLaunch = function(options) {
     var javascriptFiles = [
         `${options.BASEURL}js/ResourceLoader.js`,
         `${options.BASEURL}js/Presenter.js`,
-        `${options.BASEURL}js/Feedly.js`,
-        `${options.BASEURL}js/Templater.js`
+        `${options.BASEURL}js/feedly.js`,
+        `${options.BASEURL}js/templater.js`
     ];
 
     /**
