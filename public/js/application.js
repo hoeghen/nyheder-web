@@ -1,6 +1,7 @@
 //# sourceURL=application.js
 
 /*
+Version 2
 Copyright (C) 2016 Apple Inc. All Rights Reserved.
 See LICENSE.txt for this sample’s licensing information
 
