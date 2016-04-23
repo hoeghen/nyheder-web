@@ -26,6 +26,7 @@ var Templater = {
         <document>
            <showcaseTemplate>
               <background>
+              <img src="http://www.bodiehodgesfoundation.co.uk/wp-content/uploads/2013/05/new-black-silver-grey-background-wallpaper-desktop-background.jpg"/>
               </background>
               <banner>
                  <title>Danske Nyheder</title>

@@ -1,5 +1,5 @@
 var chai = require ('chai')
-var Feedly = require('../../js/Feedly')
+var Feedly = require('../../js/feedly')
 var feedly = Feedly.Feedly
 
 
