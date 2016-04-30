@@ -55,3 +55,5 @@ ResourceLoader.prototype.loadResource = function(resource, callback) {
         }
     });
 }
+
+module.exports = ResourceLoader

@@ -254,3 +254,6 @@ var Presenter = {
           </loadingTemplate>
         </document>`
 }
+
+
+module.exports = Presenter

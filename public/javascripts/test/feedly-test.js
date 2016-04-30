@@ -1,6 +1,6 @@
 var chai = require ('chai')
-var Feedly = require('../../js/feedly')
-var feedly = Feedly.Feedly
+var feedly = require('../feedly')
+
 
 
 describe('feedly', function() {
