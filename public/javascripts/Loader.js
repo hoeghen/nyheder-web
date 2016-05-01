@@ -26,26 +26,19 @@ var Feedly = require('./feedly.js')
 var Presenter = require('./Presenter.js')
 var Templater = require('./templater.js')
 
-String.prototype.replaceAll = function(search, replace) {
-    if (replace === undefined) {
-        return this.toString();
-    }
-    return this.split(search).join(replace);
-}
 
+function createNews() {
+    Feedly.getAllNews(function (news) {
+        var docJson = Templater.createDoc(JSON.parse(news))
+        var doc = Presenter.makeDocument(docJson);
+        navigationDocument.pushDocument(doc);
+    })
+}
 App.onLaunch = function(options) {
-        Feedly.getAllNews(function(news){
-            function removeAmp(result) {
-                return result.replaceAll("&","&amp;")
-            }
-            console.log("news" +news)
-                var finalDoc = Templater.createDoc(JSON.parse(news))
-                console.log("unencoded"+encodedDoc)    
-                var encodedDoc = removeAmp(finalDoc)
-                console.log("encoded"+encodedDoc)
-                var doc = Presenter.makeDocument(encodedDoc);
-                navigationDocument.pushDocument(doc);
-            })
+    createNews()
 }
 
+App.onResume = function(options) {
+    createNews()
+}
 
