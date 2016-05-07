@@ -43,15 +43,5 @@ describe('feedly', function() {
             })
         });
     });
-    describe('getAllNews2', function () {
-        this.timeout(5000);
-        it('should return a list of all news', function (done) {
-            feedly.getAllNews(function(response){
-                var news = JSON.parse(response)
-                chai.expect(news).to.be.a('array');
-                done()
-            })
-        });
-    });
-
+ 
 });

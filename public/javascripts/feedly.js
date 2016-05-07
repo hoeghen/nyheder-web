@@ -4,6 +4,7 @@
  * Created by cha on 4/2/2016.
  */
 
+var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
 var Feedly = {
     feedcache: {
         lastUpdate:undefined
@@ -19,10 +20,12 @@ var Feedly = {
     request: function (url, callback) {
         var xmlhttp = new XMLHttpRequest();
         xmlhttp.onreadystatechange = function () {
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
-                callback(xmlhttp.responseText);
-            } else {
-                console.log("failed request " + url)
+            if (xmlhttp.readyState == 4){
+                if(xmlhttp.status = 200){
+                    callback(xmlhttp.responseText);
+                }else{
+                    console.log("failed request " + url)
+                }
             }
         };
         xmlhttp.open("GET", url, true);
@@ -61,7 +64,7 @@ var Feedly = {
         var entries = [];
         if (parsed.items) {
             parsed.items.forEach(function (item) {
-                console.log("parsing item ="+item)
+                console.log("parsing item ="+JSON.stringify(item))
                 var newsItem = {};
                 newsItem.title = item.title;
                 if (item.summary){
@@ -75,7 +78,8 @@ var Feedly = {
                 }
 
 
-                newsItem.published = item.published;
+                newsItem.published = new Date(item.published);
+                newsItem.timestamp = item.published
                 newsItem.provider = provider.name;
                 if (newsItem.visual  && newsItem.visual.length > 10) {
                     if(newsItem.summary && newsItem.summary.length > 10)
