@@ -63,7 +63,8 @@ var Feedly = {
                 }
 
 
-                newsItem.published = item.published;
+                newsItem.published = new Date(item.published);
+                newsItem.timeStamp = item.published;
                 newsItem.provider = provider.name;
                 if (newsItem.visual  && newsItem.visual.length > 10) {
                     if(newsItem.summary && newsItem.summary.length > 10)
@@ -72,6 +73,9 @@ var Feedly = {
                 }
             });
         }
+        entries.sort(function(a,b){
+            b.timeStamp - a.timeStamp
+        })
         return JSON.stringify(entries)
     },
 
@@ -86,6 +90,7 @@ var Feedly = {
 
         function handleResult(result) {
             var entries = self.parseEntries(provider, result);
+
             callback(entries)
         }
 
