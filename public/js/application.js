@@ -27,28 +27,21 @@ var Feedly = require('./feedly.js')
 var Presenter = require('./Presenter.js')
 var Templater = require('./templater.js')
 
-String.prototype.replaceAll = function(search, replace) {
-    if (replace === undefined) {
-        return this.toString();
-    }
-    return this.split(search).join(replace);
-}
 
+function createNews() {
+    Feedly.getAllNews(function (news) {
+        var docJson = Templater.createDoc(JSON.parse(news))
+        var doc = Presenter.makeDocument(docJson);
+        navigationDocument.pushDocument(doc);
+    })
+}
 App.onLaunch = function(options) {
-        Feedly.getAllNews(function(news){
-            function removeAmp(result) {
-                return result.replaceAll("&","&amp;")
-            }
-            console.log("news" +news)
-                var finalDoc = Templater.createDoc(JSON.parse(news))
-                console.log("unencoded"+encodedDoc)    
-                var encodedDoc = removeAmp(finalDoc)
-                console.log("encoded"+encodedDoc)
-                var doc = Presenter.makeDocument(encodedDoc);
-                navigationDocument.pushDocument(doc);
-            })
+    createNews()
 }
 
+App.onResume = function(options) {
+    createNews()
+}
 
 
 },{"./Presenter.js":2,"./feedly.js":3,"./templater.js":4}],2:[function(require,module,exports){
@@ -330,6 +323,18 @@ var Feedly = {
 
     },
 
+    request: function (url, callback) {
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function () {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                callback(xmlhttp.responseText);
+            } else {
+                console.log("failed request " + url)
+            }
+        };
+        xmlhttp.open("GET", url, true);
+        xmlhttp.send();
+    },
 
     getProviders: function (callback) {
 
@@ -405,19 +410,6 @@ var Feedly = {
 
     },
 
-    request: function (url, callback) {
-        var xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function () {
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
-                callback(xmlhttp.responseText);
-            } else {
-                console.log("failed request " + url)
-            }
-        };
-        xmlhttp.open("GET", url, true);
-        xmlhttp.send();
-    },
-
     getAllNews: function (callBack) {
         var self = this
         var items
@@ -479,6 +471,15 @@ var Feedly = {
 module.exports = Feedly
 },{}],4:[function(require,module,exports){
 // version 2
+
+String.prototype.replaceAll = function(search, replace) {
+    if (replace === undefined) {
+        return this.toString();
+    }
+    return this.split(search).join(replace);
+}
+
+
 var Templater = {
     createDoc : function(data){
         var self = this
@@ -488,8 +489,8 @@ var Templater = {
             var lockup = self.construct(item.visual,item.title,item.summary,item.provider)
             lockups = lockups+lockup
         })
-        
-        return this.fullDoc(lockups)
+        var doc = this.fullDoc(lockups)
+        return this.encode(doc)
     },
 
     construct : function(image,title,summary,provider){
@@ -518,9 +519,20 @@ var Templater = {
               </carousel>
            </showcaseTemplate>
         </document>`
+    },
+    
+    encode : function(doc) {
+        function removeAmp(result) {
+            return result.replaceAll("&","&amp;")
+        }
+        var encodedDoc = removeAmp(doc)
+        return encodedDoc
     }
     
+    
 }
+    
+
 
 module.exports = Templater
 

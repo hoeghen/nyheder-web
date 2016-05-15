@@ -1,4 +1,13 @@
 // version 2
+
+String.prototype.replaceAll = function(search, replace) {
+    if (replace === undefined) {
+        return this.toString();
+    }
+    return this.split(search).join(replace);
+}
+
+
 var Templater = {
     createDoc : function(data){
         var self = this
@@ -8,8 +17,8 @@ var Templater = {
             var lockup = self.construct(item.visual,item.title,item.summary,item.provider,item.published)
             lockups = lockups+lockup
         })
-        
-        return this.fullDoc(lockups)
+        var doc = this.fullDoc(lockups)
+        return this.encode(doc)
     },
 
     construct : function(image,title,summary,provider,published){
@@ -38,9 +47,20 @@ var Templater = {
               </carousel>
            </showcaseTemplate>
         </document>`
+    },
+    
+    encode : function(doc) {
+        function removeAmp(result) {
+            return result.replaceAll("&","&amp;")
+        }
+        var encodedDoc = removeAmp(doc)
+        return encodedDoc
     }
     
+    
 }
+    
+
 
 module.exports = Templater
 

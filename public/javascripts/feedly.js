@@ -16,6 +16,18 @@ var Feedly = {
 
     },
 
+    request: function (url, callback) {
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function () {
+            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+                callback(xmlhttp.responseText);
+            } else {
+                console.log("failed request " + url)
+            }
+        };
+        xmlhttp.open("GET", url, true);
+        xmlhttp.send();
+    },
 
     getProviders: function (callback) {
 
@@ -94,19 +106,6 @@ var Feedly = {
             callback(entries)
         }
 
-    },
-
-    request: function (url, callback) {
-        var xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function () {
-            if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
-                callback(xmlhttp.responseText);
-            } else {
-                console.log("failed request " + url)
-            }
-        };
-        xmlhttp.open("GET", url, true);
-        xmlhttp.send();
     },
 
     getAllNews: function (callBack) {
