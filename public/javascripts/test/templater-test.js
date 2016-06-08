@@ -7,8 +7,7 @@ describe('templater', function () {
     this.timeout(5000);
     it('should return a list lockups', function (done) {
         feedly.getAllNews(function(response){
-            var news = JSON.parse(response)
-            var result = templater.createDoc(news)
+            var result = templater.createDoc(response)
             console.log(result)
             done()
         })

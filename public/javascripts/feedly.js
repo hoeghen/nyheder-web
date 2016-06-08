@@ -4,7 +4,7 @@
  * Created by cha on 4/2/2016.
  */
 
-var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
+var NodeRequester = require("xmlhttprequest").XMLHttpRequest;
 var Feedly = {
     feedcache: {
         lastUpdate:undefined
@@ -18,7 +18,13 @@ var Feedly = {
     },
 
     request: function (url, callback) {
-        var xmlhttp = new XMLHttpRequest();
+        // The XmlHttpRequest is not available outside appletv context so we need this to run unit tests
+        var xmlhttp;
+        if (typeof XMLHttpRequest === 'function'){
+            xmlhttp = new XMLHttpRequest();
+        }else{
+            xmlhttp = new NodeRequester();
+        }
         xmlhttp.onreadystatechange = function () {
             if (xmlhttp.readyState == 4){
                 if(xmlhttp.status = 200){

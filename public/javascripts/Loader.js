@@ -29,7 +29,7 @@ var Templater = require('./templater.js')
 
 function createNews() {
     Feedly.getAllNews(function (news) {
-        var docJson = Templater.createDoc(JSON.parse(news))
+        var docJson = Templater.createDoc(news)
         var doc = Presenter.makeDocument(docJson);
         navigationDocument.pushDocument(doc);
     })

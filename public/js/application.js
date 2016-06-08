@@ -7341,7 +7341,7 @@ var Templater = require('./templater.js')
 
 function createNews() {
     Feedly.getAllNews(function (news) {
-        var docJson = Templater.createDoc(JSON.parse(news))
+        var docJson = Templater.createDoc(news)
         var doc = Presenter.makeDocument(docJson);
         navigationDocument.pushDocument(doc);
     })
@@ -7623,7 +7623,7 @@ module.exports = Presenter
  * Created by cha on 4/2/2016.
  */
 
-var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
+var NodeRequester = require("xmlhttprequest").XMLHttpRequest;
 var Feedly = {
     feedcache: {
         lastUpdate:undefined
@@ -7637,7 +7637,12 @@ var Feedly = {
     },
 
     request: function (url, callback) {
-        var xmlhttp = new XMLHttpRequest();
+        var xmlhttp;
+        if (typeof XMLHttpRequest === 'function'){
+            xmlhttp = new XMLHttpRequest();
+        }else{
+            xmlhttp = new NodeRequester();
+        }
         xmlhttp.onreadystatechange = function () {
             if (xmlhttp.readyState == 4){
                 if(xmlhttp.status = 200){
