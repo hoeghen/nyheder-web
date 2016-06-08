@@ -31,6 +31,7 @@ function createNews() {
     Feedly.getAllNews(function (news) {
         var docJson = Templater.createDoc(news)
         var doc = Presenter.makeDocument(docJson);
+        navigationDocument.clear();
         navigationDocument.pushDocument(doc);
     })
 }
