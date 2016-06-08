@@ -14,19 +14,19 @@ var Templater = {
         var lockups = ""
 
         data.forEach(function(item){
-            var lockup = self.construct(item.visual,item.title,item.summary,item.provider)
+            var lockup = self.construct(item.visual,item.title,item.summary,item.provider,item.published)
             lockups = lockups+lockup
         })
         var doc = this.fullDoc(lockups)
         return this.encode(doc)
     },
 
-    construct : function(image,title,summary,provider){
+    construct : function(image,title,summary,provider,published){
         var itemXML =
             `<lockup>
                 <img src="${image}" width="1220" />
                 <title>${title}</title>
-                <description allowsZooming="true">${summary} - ${provider}</description>
+                <description allowsZooming="true">${summary} - ${provider} - ${published}</description>
              </lockup>`
         return itemXML
     },
