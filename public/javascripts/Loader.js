@@ -39,6 +39,7 @@ App.onLaunch = function(options) {
 }
 
 App.onResume = function(options) {
+    console.log("resume called")
     createNews()
 }
 

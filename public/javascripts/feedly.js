@@ -52,7 +52,7 @@ var Feedly = {
                 provider.iconUrl = result.iconUrl;
                 providers.push(provider)
             });
-            return JSON.stringify(providers)
+            return providers
         }
     },
 
@@ -64,7 +64,6 @@ var Feedly = {
         var entries = [];
         if (parsed.items) {
             parsed.items.forEach(function (item) {
-                console.log("parsing item ="+JSON.stringify(item))
                 var newsItem = {};
                 newsItem.title = item.title;
                 if (item.summary){
@@ -78,7 +77,7 @@ var Feedly = {
                 }
 
 
-                newsItem.published = new Date(item.published);
+                newsItem.published = new Date(item.published).toDateString();
                 newsItem.timeStamp = item.published;
                 newsItem.provider = provider.name;
                 if (newsItem.visual  && newsItem.visual.length > 10) {
@@ -88,10 +87,7 @@ var Feedly = {
                 }
             });
         }
-        entries.sort(function(a,b){
-            b.timeStamp - a.timeStamp
-        })
-        return JSON.stringify(entries)
+        return entries
     },
 
     getProviderNews: function (provider, newerThan, callback) {
@@ -111,7 +107,7 @@ var Feedly = {
 
     },
 
-    getAllNews: function (callBack) {
+    getSomeNews: function (antal,callBack) {
         var self = this
         var items
         // only call for new news every maxAge minutes or first time
@@ -130,9 +126,17 @@ var Feedly = {
 
         if (true ||firstTime() ||  isToOld() ) {
             this.getAllNewsFrom(null, function (list) {
+                list.sort(function(a,b){
+                    return b.timeStamp - a.timeStamp;
+                })
                 self.feedcache.lastUpdate = Date.now
                 self.feedcache.data = list;
-                callBack(list);
+                if(antal){
+                    callBack(list.slice(0,antal));
+                }else{
+                    callBack(list);
+                }
+
             })
         } else {
             callBack(self.feedcache.data)
@@ -140,23 +144,25 @@ var Feedly = {
 
 
     },
-
+    getAllNews: function(callback){
+        var self = this
+      return self.getSomeNews(null,callback);
+    },
     getAllNewsFrom: function (newerThan, callback) {
         var self = this
         this.getProviders(function (result) {
             var allList = [];
-            var providers = JSON.parse(result)
+            var providers = result
             var count = providers.length;
 
             providers.forEach(function (provider) {
                 self.getProviderNews(provider, newerThan, function (list) {
                     count = count - 1;
                     if (list.length > 0) {
-                        var listArray = JSON.parse(list)
-                        allList.push.apply(allList, listArray);
+                        allList.push.apply(allList, list);
                     }
                     if (count == 0) {
-                        callback(JSON.stringify(allList))
+                        callback(allList)
                     }
                 })
             })

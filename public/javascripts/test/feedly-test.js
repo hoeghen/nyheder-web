@@ -1,7 +1,8 @@
 var chai = require ('chai')
 var feedly = require('../feedly')
+var chaisorted = require('chai-sorted')
 
-
+chai.use(chaisorted)
 
 describe('feedly', function() {
     describe('getProviders', function () {
@@ -19,6 +20,7 @@ describe('feedly', function() {
         });
     });
     describe('getProviderNews', function () {
+        this.timeout(5000);
         it('should return a list of news', function (done1) {
             feedly.getProviders(function(response){
                 var providers = JSON.parse(response)
@@ -33,12 +35,12 @@ describe('feedly', function() {
         });
     });
 
-    describe('getAllNews', function () {
+    describe('getSomeNews', function () {
         this.timeout(5000);
-        it('should return a list of all news', function (done) {
-            feedly.getAllNews(function(response){
-                var news = JSON.parse(response)
-                chai.expect(news).to.be.a('array');
+        it('should return a list of some news', function (done) {
+            feedly.getSomeNews(1000,function(response){
+                chai.expect(response).to.be.a('array');
+                chai.expect(response).to.be.to.be.sortedBy('timeStamp',true)
                 done()
             })
         });

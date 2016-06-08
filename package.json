@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "start": "node ./bin/www"
+    "start": "node ./bin/www",
+    "build": "browserify public/javascripts/Loader.js > public/js/application.js"
   },
   "dependencies": {
     "body-parser": "~1.13.2",
@@ -12,7 +13,6 @@
     "express": "~4.13.1",
     "hbs": "~3.1.0",
     "morgan": "~1.6.1",
-    "browerRequest": "^2.70.0",
     "serve-favicon": "~2.3.0"
   },
   "devDependencies": {
