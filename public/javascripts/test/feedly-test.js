@@ -9,7 +9,7 @@ describe('feedly', function() {
         it('should return a list of providers', function (done) {
 
             feedly.getProviders(function(response){
-                var providers = JSON.parse(response)
+                var providers = response
                 chai.expect(providers).to.be.a('array');
                 providers.forEach(function(item){
                     chai.expect(item).to.include.keys('feedId','name')
@@ -23,10 +23,10 @@ describe('feedly', function() {
         this.timeout(5000);
         it('should return a list of news', function (done1) {
             feedly.getProviders(function(response){
-                var providers = JSON.parse(response)
+                var providers = response
                 var provider = providers[0]
                 feedly.getProviderNews(provider,null,function(providerNews){
-                    var providerNewsList = JSON.parse(providerNews)
+                    var providerNewsList = providerNews
                     chai.expect(providerNewsList).to.be.a('array');
                     done1()
                 })

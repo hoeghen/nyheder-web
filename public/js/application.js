@@ -7631,12 +7631,10 @@ var Feedly = {
     maxAge: 1000 * 60 * 5,
     maxNews: 100,
     maxProviders:10,
-
-    urlCache: {
-
-    },
+    urlCache: [],
 
     request: function (url, callback) {
+        // The XmlHttpRequest is not available outside appletv context so we need this to run unit tests
         var xmlhttp;
         if (typeof XMLHttpRequest === 'function'){
             xmlhttp = new XMLHttpRequest();
@@ -7681,6 +7679,7 @@ var Feedly = {
     },
 
     parseEntries: function (provider, result) {
+        var self=this;
         function stripHtml(html){
             return html.replace(/<(?:.|\n)*?>/gm, '');
         }
@@ -7705,9 +7704,12 @@ var Feedly = {
                 newsItem.timeStamp = item.published;
                 newsItem.provider = provider.name;
                 if (newsItem.visual  && newsItem.visual.length > 10) {
-                    if(newsItem.summary && newsItem.summary.length > 10)
-                        entries.push(newsItem)
-
+                    if(newsItem.summary && newsItem.summary.length > 10){
+                        if(self.urlCache.indexOf(newsItem.visual)==-1){
+                            entries.push(newsItem)
+                            self.urlCache.push(newsItem.visual)
+                        }
+                    }
                 }
             });
         }
@@ -7725,7 +7727,6 @@ var Feedly = {
 
         function handleResult(result) {
             var entries = self.parseEntries(provider, result);
-
             callback(entries)
         }
 
