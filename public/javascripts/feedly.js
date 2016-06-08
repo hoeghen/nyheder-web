@@ -146,7 +146,7 @@ var Feedly = {
     },
     getAllNews: function(callback){
         var self = this
-      return self.getSomeNews(null,callback);
+      return self.getSomeNews(100,callback);
     },
     getAllNewsFrom: function (newerThan, callback) {
         var self = this

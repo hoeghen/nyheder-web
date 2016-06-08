@@ -1,1186 +1,119 @@
 (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(require,module,exports){
-(function (process,Buffer){
-/**
- * Wrapper for built-in http.js to emulate the browser XMLHttpRequest object.
- *
- * This can be used with JS designed for browsers to improve reuse of code and
- * allow the use of existing libraries.
- *
- * Usage: include("XMLHttpRequest.js") and use XMLHttpRequest per W3C specs.
- *
- * @author Dan DeFelippi <dan@driverdan.com>
- * @contributor David Ellis <d.f.ellis@ieee.org>
- * @license MIT
- */
 
-var Url = require("url");
-var spawn = require("child_process").spawn;
-var fs = require("fs");
+},{}],2:[function(require,module,exports){
+'use strict'
 
-exports.XMLHttpRequest = function() {
-  "use strict";
+exports.toByteArray = toByteArray
+exports.fromByteArray = fromByteArray
 
-  /**
-   * Private variables
-   */
-  var self = this;
-  var http = require("http");
-  var https = require("https");
+var lookup = []
+var revLookup = []
+var Arr = typeof Uint8Array !== 'undefined' ? Uint8Array : Array
 
-  // Holds http.js objects
-  var request;
-  var response;
+function init () {
+  var code = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  for (var i = 0, len = code.length; i < len; ++i) {
+    lookup[i] = code[i]
+    revLookup[code.charCodeAt(i)] = i
+  }
 
-  // Request settings
-  var settings = {};
-
-  // Disable header blacklist.
-  // Not part of XHR specs.
-  var disableHeaderCheck = false;
-
-  // Set some default headers
-  var defaultHeaders = {
-    "User-Agent": "node-XMLHttpRequest",
-    "Accept": "*/*",
-  };
-
-  var headers = {};
-  var headersCase = {};
-
-  // These headers are not user setable.
-  // The following are allowed but banned in the spec:
-  // * user-agent
-  var forbiddenRequestHeaders = [
-    "accept-charset",
-    "accept-encoding",
-    "access-control-request-headers",
-    "access-control-request-method",
-    "connection",
-    "content-length",
-    "content-transfer-encoding",
-    "cookie",
-    "cookie2",
-    "date",
-    "expect",
-    "host",
-    "keep-alive",
-    "origin",
-    "referer",
-    "te",
-    "trailer",
-    "transfer-encoding",
-    "upgrade",
-    "via"
-  ];
-
-  // These request methods are not allowed
-  var forbiddenRequestMethods = [
-    "TRACE",
-    "TRACK",
-    "CONNECT"
-  ];
-
-  // Send flag
-  var sendFlag = false;
-  // Error flag, used when errors occur or abort is called
-  var errorFlag = false;
-
-  // Event listeners
-  var listeners = {};
-
-  /**
-   * Constants
-   */
-
-  this.UNSENT = 0;
-  this.OPENED = 1;
-  this.HEADERS_RECEIVED = 2;
-  this.LOADING = 3;
-  this.DONE = 4;
-
-  /**
-   * Public vars
-   */
-
-  // Current state
-  this.readyState = this.UNSENT;
-
-  // default ready state change handler in case one is not set or is set late
-  this.onreadystatechange = null;
-
-  // Result & response
-  this.responseText = "";
-  this.responseXML = "";
-  this.status = null;
-  this.statusText = null;
-  
-  // Whether cross-site Access-Control requests should be made using
-  // credentials such as cookies or authorization headers
-  this.withCredentials = false;
-
-  /**
-   * Private methods
-   */
-
-  /**
-   * Check if the specified header is allowed.
-   *
-   * @param string header Header to validate
-   * @return boolean False if not allowed, otherwise true
-   */
-  var isAllowedHttpHeader = function(header) {
-    return disableHeaderCheck || (header && forbiddenRequestHeaders.indexOf(header.toLowerCase()) === -1);
-  };
-
-  /**
-   * Check if the specified method is allowed.
-   *
-   * @param string method Request method to validate
-   * @return boolean False if not allowed, otherwise true
-   */
-  var isAllowedHttpMethod = function(method) {
-    return (method && forbiddenRequestMethods.indexOf(method) === -1);
-  };
-
-  /**
-   * Public methods
-   */
-
-  /**
-   * Open the connection. Currently supports local server requests.
-   *
-   * @param string method Connection method (eg GET, POST)
-   * @param string url URL for the connection.
-   * @param boolean async Asynchronous connection. Default is true.
-   * @param string user Username for basic authentication (optional)
-   * @param string password Password for basic authentication (optional)
-   */
-  this.open = function(method, url, async, user, password) {
-    this.abort();
-    errorFlag = false;
-
-    // Check for valid request method
-    if (!isAllowedHttpMethod(method)) {
-      throw new Error("SecurityError: Request method not allowed");
-    }
-
-    settings = {
-      "method": method,
-      "url": url.toString(),
-      "async": (typeof async !== "boolean" ? true : async),
-      "user": user || null,
-      "password": password || null
-    };
-
-    setState(this.OPENED);
-  };
-
-  /**
-   * Disables or enables isAllowedHttpHeader() check the request. Enabled by default.
-   * This does not conform to the W3C spec.
-   *
-   * @param boolean state Enable or disable header checking.
-   */
-  this.setDisableHeaderCheck = function(state) {
-    disableHeaderCheck = state;
-  };
-
-  /**
-   * Sets a header for the request or appends the value if one is already set.
-   *
-   * @param string header Header name
-   * @param string value Header value
-   */
-  this.setRequestHeader = function(header, value) {
-    if (this.readyState !== this.OPENED) {
-      throw new Error("INVALID_STATE_ERR: setRequestHeader can only be called when state is OPEN");
-    }
-    if (!isAllowedHttpHeader(header)) {
-      console.warn("Refused to set unsafe header \"" + header + "\"");
-      return;
-    }
-    if (sendFlag) {
-      throw new Error("INVALID_STATE_ERR: send flag is true");
-    }
-    header = headersCase[header.toLowerCase()] || header;
-    headersCase[header.toLowerCase()] = header;
-    headers[header] = headers[header] ? headers[header] + ', ' + value : value;
-  };
-
-  /**
-   * Gets a header from the server response.
-   *
-   * @param string header Name of header to get.
-   * @return string Text of the header or null if it doesn't exist.
-   */
-  this.getResponseHeader = function(header) {
-    if (typeof header === "string"
-      && this.readyState > this.OPENED
-      && response
-      && response.headers
-      && response.headers[header.toLowerCase()]
-      && !errorFlag
-    ) {
-      return response.headers[header.toLowerCase()];
-    }
-
-    return null;
-  };
-
-  /**
-   * Gets all the response headers.
-   *
-   * @return string A string with all response headers separated by CR+LF
-   */
-  this.getAllResponseHeaders = function() {
-    if (this.readyState < this.HEADERS_RECEIVED || errorFlag) {
-      return "";
-    }
-    var result = "";
-
-    for (var i in response.headers) {
-      // Cookie headers are excluded
-      if (i !== "set-cookie" && i !== "set-cookie2") {
-        result += i + ": " + response.headers[i] + "\r\n";
-      }
-    }
-    return result.substr(0, result.length - 2);
-  };
-
-  /**
-   * Gets a request header
-   *
-   * @param string name Name of header to get
-   * @return string Returns the request header or empty string if not set
-   */
-  this.getRequestHeader = function(name) {
-    if (typeof name === "string" && headersCase[name.toLowerCase()]) {
-      return headers[headersCase[name.toLowerCase()]];
-    }
-
-    return "";
-  };
-
-  /**
-   * Sends the request to the server.
-   *
-   * @param string data Optional data to send as request body.
-   */
-  this.send = function(data) {
-    if (this.readyState !== this.OPENED) {
-      throw new Error("INVALID_STATE_ERR: connection must be opened before send() is called");
-    }
-
-    if (sendFlag) {
-      throw new Error("INVALID_STATE_ERR: send has already been called");
-    }
-
-    var ssl = false, local = false;
-    var url = Url.parse(settings.url);
-    var host;
-    // Determine the server
-    switch (url.protocol) {
-      case "https:":
-        ssl = true;
-        // SSL & non-SSL both need host, no break here.
-      case "http:":
-        host = url.hostname;
-        break;
-
-      case "file:":
-        local = true;
-        break;
-
-      case undefined:
-      case null:
-      case "":
-        host = "localhost";
-        break;
-
-      default:
-        throw new Error("Protocol not supported.");
-    }
-
-    // Load files off the local filesystem (file://)
-    if (local) {
-      if (settings.method !== "GET") {
-        throw new Error("XMLHttpRequest: Only GET method is supported");
-      }
-
-      if (settings.async) {
-        fs.readFile(url.pathname, "utf8", function(error, data) {
-          if (error) {
-            self.handleError(error);
-          } else {
-            self.status = 200;
-            self.responseText = data;
-            setState(self.DONE);
-          }
-        });
-      } else {
-        try {
-          this.responseText = fs.readFileSync(url.pathname, "utf8");
-          this.status = 200;
-          setState(self.DONE);
-        } catch(e) {
-          this.handleError(e);
-        }
-      }
-
-      return;
-    }
-
-    // Default to port 80. If accessing localhost on another port be sure
-    // to use http://localhost:port/path
-    var port = url.port || (ssl ? 443 : 80);
-    // Add query string if one is used
-    var uri = url.pathname + (url.search ? url.search : "");
-
-    // Set the defaults if they haven't been set
-    for (var name in defaultHeaders) {
-      if (!headersCase[name.toLowerCase()]) {
-        headers[name] = defaultHeaders[name];
-      }
-    }
-
-    // Set the Host header or the server may reject the request
-    headers.Host = host;
-    if (!((ssl && port === 443) || port === 80)) {
-      headers.Host += ":" + url.port;
-    }
-
-    // Set Basic Auth if necessary
-    if (settings.user) {
-      if (typeof settings.password === "undefined") {
-        settings.password = "";
-      }
-      var authBuf = new Buffer(settings.user + ":" + settings.password);
-      headers.Authorization = "Basic " + authBuf.toString("base64");
-    }
-
-    // Set content length header
-    if (settings.method === "GET" || settings.method === "HEAD") {
-      data = null;
-    } else if (data) {
-      headers["Content-Length"] = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
-
-      if (!headers["Content-Type"]) {
-        headers["Content-Type"] = "text/plain;charset=UTF-8";
-      }
-    } else if (settings.method === "POST") {
-      // For a post with no data set Content-Length: 0.
-      // This is required by buggy servers that don't meet the specs.
-      headers["Content-Length"] = 0;
-    }
-
-    var options = {
-      host: host,
-      port: port,
-      path: uri,
-      method: settings.method,
-      headers: headers,
-      agent: false,
-      withCredentials: self.withCredentials
-    };
-
-    // Reset error flag
-    errorFlag = false;
-
-    // Handle async requests
-    if (settings.async) {
-      // Use the proper protocol
-      var doRequest = ssl ? https.request : http.request;
-
-      // Request is being sent, set send flag
-      sendFlag = true;
-
-      // As per spec, this is called here for historical reasons.
-      self.dispatchEvent("readystatechange");
-
-      // Handler for the response
-      var responseHandler = function responseHandler(resp) {
-        // Set response var to the response we got back
-        // This is so it remains accessable outside this scope
-        response = resp;
-        // Check for redirect
-        // @TODO Prevent looped redirects
-        if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 303 || response.statusCode === 307) {
-          // Change URL to the redirect location
-          settings.url = response.headers.location;
-          var url = Url.parse(settings.url);
-          // Set host var in case it's used later
-          host = url.hostname;
-          // Options for the new request
-          var newOptions = {
-            hostname: url.hostname,
-            port: url.port,
-            path: url.path,
-            method: response.statusCode === 303 ? "GET" : settings.method,
-            headers: headers,
-            withCredentials: self.withCredentials
-          };
-
-          // Issue the new request
-          request = doRequest(newOptions, responseHandler).on("error", errorHandler);
-          request.end();
-          // @TODO Check if an XHR event needs to be fired here
-          return;
-        }
-
-        response.setEncoding("utf8");
-
-        setState(self.HEADERS_RECEIVED);
-        self.status = response.statusCode;
-
-        response.on("data", function(chunk) {
-          // Make sure there's some data
-          if (chunk) {
-            self.responseText += chunk;
-          }
-          // Don't emit state changes if the connection has been aborted.
-          if (sendFlag) {
-            setState(self.LOADING);
-          }
-        });
-
-        response.on("end", function() {
-          if (sendFlag) {
-            // Discard the end event if the connection has been aborted
-            setState(self.DONE);
-            sendFlag = false;
-          }
-        });
-
-        response.on("error", function(error) {
-          self.handleError(error);
-        });
-      };
-
-      // Error handler for the request
-      var errorHandler = function errorHandler(error) {
-        self.handleError(error);
-      };
-
-      // Create the request
-      request = doRequest(options, responseHandler).on("error", errorHandler);
-
-      // Node 0.4 and later won't accept empty data. Make sure it's needed.
-      if (data) {
-        request.write(data);
-      }
-
-      request.end();
-
-      self.dispatchEvent("loadstart");
-    } else { // Synchronous
-      // Create a temporary file for communication with the other Node process
-      var contentFile = ".node-xmlhttprequest-content-" + process.pid;
-      var syncFile = ".node-xmlhttprequest-sync-" + process.pid;
-      fs.writeFileSync(syncFile, "", "utf8");
-      // The async request the other Node process executes
-      var execString = "var http = require('http'), https = require('https'), fs = require('fs');"
-        + "var doRequest = http" + (ssl ? "s" : "") + ".request;"
-        + "var options = " + JSON.stringify(options) + ";"
-        + "var responseText = '';"
-        + "var req = doRequest(options, function(response) {"
-        + "response.setEncoding('utf8');"
-        + "response.on('data', function(chunk) {"
-        + "  responseText += chunk;"
-        + "});"
-        + "response.on('end', function() {"
-        + "fs.writeFileSync('" + contentFile + "', JSON.stringify({err: null, data: {statusCode: response.statusCode, headers: response.headers, text: responseText}}), 'utf8');"
-        + "fs.unlinkSync('" + syncFile + "');"
-        + "});"
-        + "response.on('error', function(error) {"
-        + "fs.writeFileSync('" + contentFile + "', JSON.stringify({err: error}), 'utf8');"
-        + "fs.unlinkSync('" + syncFile + "');"
-        + "});"
-        + "}).on('error', function(error) {"
-        + "fs.writeFileSync('" + contentFile + "', JSON.stringify({err: error}), 'utf8');"
-        + "fs.unlinkSync('" + syncFile + "');"
-        + "});"
-        + (data ? "req.write('" + JSON.stringify(data).slice(1,-1).replace(/'/g, "\\'") + "');":"")
-        + "req.end();";
-      // Start the other Node Process, executing this string
-      var syncProc = spawn(process.argv[0], ["-e", execString]);
-      while(fs.existsSync(syncFile)) {
-        // Wait while the sync file is empty
-      }
-      var resp = JSON.parse(fs.readFileSync(contentFile, 'utf8'));
-      // Kill the child process once the file has data
-      syncProc.stdin.end();
-      // Remove the temporary file
-      fs.unlinkSync(contentFile);
-
-      if (resp.err) {
-        self.handleError(resp.err);
-      } else {
-        response = resp.data;
-        self.status = resp.data.statusCode;
-        self.responseText = resp.data.text;
-        setState(self.DONE);
-      }
-    }
-  };
-
-  /**
-   * Called when an error is encountered to deal with it.
-   */
-  this.handleError = function(error) {
-    this.status = 0;
-    this.statusText = error;
-    this.responseText = error.stack;
-    errorFlag = true;
-    setState(this.DONE);
-    this.dispatchEvent('error');
-  };
-
-  /**
-   * Aborts a request.
-   */
-  this.abort = function() {
-    if (request) {
-      request.abort();
-      request = null;
-    }
-
-    headers = defaultHeaders;
-    this.status = 0;
-    this.responseText = "";
-    this.responseXML = "";
-
-    errorFlag = true;
-
-    if (this.readyState !== this.UNSENT
-        && (this.readyState !== this.OPENED || sendFlag)
-        && this.readyState !== this.DONE) {
-      sendFlag = false;
-      setState(this.DONE);
-    }
-    this.readyState = this.UNSENT;
-    this.dispatchEvent('abort');
-  };
-
-  /**
-   * Adds an event listener. Preferred method of binding to events.
-   */
-  this.addEventListener = function(event, callback) {
-    if (!(event in listeners)) {
-      listeners[event] = [];
-    }
-    // Currently allows duplicate callbacks. Should it?
-    listeners[event].push(callback);
-  };
-
-  /**
-   * Remove an event callback that has already been bound.
-   * Only works on the matching funciton, cannot be a copy.
-   */
-  this.removeEventListener = function(event, callback) {
-    if (event in listeners) {
-      // Filter will return a new array with the callback removed
-      listeners[event] = listeners[event].filter(function(ev) {
-        return ev !== callback;
-      });
-    }
-  };
-
-  /**
-   * Dispatch any events, including both "on" methods and events attached using addEventListener.
-   */
-  this.dispatchEvent = function(event) {
-    if (typeof self["on" + event] === "function") {
-      self["on" + event]();
-    }
-    if (event in listeners) {
-      for (var i = 0, len = listeners[event].length; i < len; i++) {
-        listeners[event][i].call(self);
-      }
-    }
-  };
-
-  /**
-   * Changes readyState and calls onreadystatechange.
-   *
-   * @param int state New state
-   */
-  var setState = function(state) {
-    if (state == self.LOADING || self.readyState !== state) {
-      self.readyState = state;
-
-      if (settings.async || self.readyState < self.OPENED || self.readyState === self.DONE) {
-        self.dispatchEvent("readystatechange");
-      }
-
-      if (self.readyState === self.DONE && !errorFlag) {
-        self.dispatchEvent("load");
-        // @TODO figure out InspectorInstrumentation::didLoadXHR(cookie)
-        self.dispatchEvent("loadend");
-      }
-    }
-  };
-};
-
-}).call(this,require('_process'),require("buffer").Buffer)
-},{"_process":16,"buffer":8,"child_process":6,"fs":6,"http":31,"https":13,"url":38}],2:[function(require,module,exports){
-//# sourceURL=application.js
-
-/*
-Version 2
-Copyright (C) 2016 Apple Inc. All Rights Reserved.
-See LICENSE.txt for this sample’s licensing information
-
-Abstract:
-This is the entry point to the application and handles the initial loading of required JavaScript files.
-*/
-
-
-/**
- * @description The onLaunch callback is invoked after the application JavaScript 
- * has been parsed into a JavaScript context. The handler is passed an object 
- * that contains options passed in for launch. These options are defined in the
- * swift or objective-c client code. Options can be used to communicate to
- * your JavaScript code that data and as well as state information, like if the 
- * the app is being launched in the background.
- *
- * The location attribute is automatically added to the object and represents 
- * the URL that was used to retrieve the application JavaScript.
- */
-
-var Feedly = require('./feedly.js')
-var Presenter = require('./Presenter.js')
-var Templater = require('./templater.js')
-
-
-function createNews() {
-    Feedly.getAllNews(function (news) {
-        var docJson = Templater.createDoc(JSON.parse(news))
-        var doc = Presenter.makeDocument(docJson);
-        navigationDocument.pushDocument(doc);
-    })
-}
-App.onLaunch = function(options) {
-    createNews()
+  revLookup['-'.charCodeAt(0)] = 62
+  revLookup['_'.charCodeAt(0)] = 63
 }
 
-App.onResume = function(options) {
-    console.log("resume called")
-    createNews()
+init()
+
+function toByteArray (b64) {
+  var i, j, l, tmp, placeHolders, arr
+  var len = b64.length
+
+  if (len % 4 > 0) {
+    throw new Error('Invalid string. Length must be a multiple of 4')
+  }
+
+  // the number of equal signs (place holders)
+  // if there are two placeholders, than the two characters before it
+  // represent one byte
+  // if there is only one, then the three characters before it represent 2 bytes
+  // this is just a cheap hack to not do indexOf twice
+  placeHolders = b64[len - 2] === '=' ? 2 : b64[len - 1] === '=' ? 1 : 0
+
+  // base64 is 4/3 + up to two characters of the original data
+  arr = new Arr(len * 3 / 4 - placeHolders)
+
+  // if there are placeholders, only get up to the last complete 4 chars
+  l = placeHolders > 0 ? len - 4 : len
+
+  var L = 0
+
+  for (i = 0, j = 0; i < l; i += 4, j += 3) {
+    tmp = (revLookup[b64.charCodeAt(i)] << 18) | (revLookup[b64.charCodeAt(i + 1)] << 12) | (revLookup[b64.charCodeAt(i + 2)] << 6) | revLookup[b64.charCodeAt(i + 3)]
+    arr[L++] = (tmp >> 16) & 0xFF
+    arr[L++] = (tmp >> 8) & 0xFF
+    arr[L++] = tmp & 0xFF
+  }
+
+  if (placeHolders === 2) {
+    tmp = (revLookup[b64.charCodeAt(i)] << 2) | (revLookup[b64.charCodeAt(i + 1)] >> 4)
+    arr[L++] = tmp & 0xFF
+  } else if (placeHolders === 1) {
+    tmp = (revLookup[b64.charCodeAt(i)] << 10) | (revLookup[b64.charCodeAt(i + 1)] << 4) | (revLookup[b64.charCodeAt(i + 2)] >> 2)
+    arr[L++] = (tmp >> 8) & 0xFF
+    arr[L++] = tmp & 0xFF
+  }
+
+  return arr
 }
 
-
-},{"./Presenter.js":3,"./feedly.js":4,"./templater.js":5}],3:[function(require,module,exports){
-/*
-Copyright (C) 2016 Apple Inc. All Rights Reserved.
-See LICENSE.txt for this sample’s licensing information
-
-Abstract:
-Templates can be displayed to the user via three primary means:
-- pushing a document on the stack
-- associating a document with a menu bar item
-- presenting a modal
-This class shows examples for each one.
-*/
-
-var Presenter = {
-
-    /**
-     * @description This function demonstrate the default way of present a document. 
-     * The document can be presented on screen by adding to to the documents array
-     * of the navigationDocument. The navigationDocument allows you to manipulate
-     * the documents array with the pushDocument, popDocument, replaceDocument, and
-     * removeDocument functions. 
-     *
-     * You can replace an existing document in the navigationDocumetn array by calling 
-     * the replaceDocument function of navigationDocument. replaceDocument requires two
-     * arguments: the new document, the old document.
-     * @param {Document} xml - The XML document to push on the stack
-     */
-    defaultPresenter: function(xml) {
-
-        /*
-        If a loading indicator is visible, we replace it with our document, otherwise 
-        we push the document on the stack
-        */
-        if(this.loadingIndicatorVisible) {
-            navigationDocument.replaceDocument(xml, this.loadingIndicator);
-            this.loadingIndicatorVisible = false;
-        } else {
-            navigationDocument.pushDocument(xml);
-        }
-    },
-
-    /**
-     * @description Extends the default presenter functionality and registers
-     * the onTextChange handler to allow for a search implementation
-     * @param {Document} xml - The XML document to push on the stack
-     */
-    searchPresenter: function(xml) {
-
-        this.defaultPresenter.call(this, xml);
-        var doc = xml;
-
-        var searchField = doc.getElementsByTagName("searchField").item(0);
-        var keyboard = searchField.getFeature("Keyboard");
-
-        keyboard.onTextChange = function() {
-            var searchText = keyboard.text;
-            console.log('search text changed: ' + searchText);
-            buildResults(doc, searchText);
-        }
-    },    
-
-    /**
-     * @description This function demonstrates the presentation of documents as modals.
-     * You can present and manage a document in a modal view by using the pushModal() and
-     * removeModal() functions. Only a single document may be presented as a modal at
-     * any given time. Documents presented in the modal view are presented in fullscreen
-     * with a semi-transparent background that blurs the document below it.
-     *
-     * @param {Document} xml - The XML document to present as modal
-     */
-    modalDialogPresenter: function(xml) {
-        navigationDocument.presentModal(xml);
-    },
-
-    /**
-     * @description This function demonstrates how to present documents within a menu bar.
-     * Each item in the menu bar can have a single document associated with it. To associate
-     * document to you an item you use the MenuBarDocument feature.
-     *
-     * Menu bar elements have a MenuBarDocument feature that stores the document associated
-     * with a menu bar element. In JavaScript you access the MenuBarDocument by invoking the 
-     * getFeature function on the menuBar element. 
-     *
-     * A feature in TVMLKit is a construct for attaching extended capabilities to an
-     * element. See the TVMLKit documentation for information on elements with available
-     * features.
-     *
-     * @param {Document} xml - The XML document to associate with a menu bar element
-     * @param {Element} ele - The currently selected item element
-     */
-    menuBarItemPresenter: function(xml, ele) {
-        /*
-        To get the menu bar's 'MenuBarDocument' feature, we move up the DOM Node tree using
-        the parentNode property. This allows us to access the the menuBar element from the 
-        current item element.
-        */
-        var feature = ele.parentNode.getFeature("MenuBarDocument");
-
-        if (feature) {
-            /*
-            To retrieve the document associated with the menu bar element, if one has been 
-            set, you call the getDocument function the MenuBarDocument feature. The function
-            takes one argument, the item element.
-            */
-            var currentDoc = feature.getDocument(ele);
-            /*
-            To present a document within the menu bar, you need to associate it with the 
-            menu bar item. This is accomplished by call the setDocument function on MenuBarDocument
-            feature. The function takes two argument, the document to be presented and item it 
-            should be associated with.
-
-            In this implementation we are only associating a document once per menu bar item. You can 
-            associate a document each time the item is selected, or you can associate documents with 
-            all the menu bar items before the menu bar is presented. You will need to experimet here
-            to balance document presentation times with updating the document items.
-            */
-            if (!currentDoc) {
-                feature.setDocument(xml, ele);
-            }
-        }
-    },
-
-    /**
-     * @description This function handles the select event and invokes the appropriate presentation method.
-     * This is only one way to implent a system for presenting documents. You should determine
-     * the best system for your application and data model.
-     *
-     * @param {Event} event - The select event
-     */
-    load: function(event) {
-        console.log(event);
-
-        var self = this,
-            ele = event.target,
-            templateURL = ele.getAttribute("template"),
-            presentation = ele.getAttribute("presentation");
-
-        /*
-        Check if the selected element has a 'template' attribute. If it does then we begin
-        the process to present the template to the user.
-        */
-        if (templateURL) {
-            /*
-            Whenever a user action is taken you need to visually indicate to the user that
-            you are processing their action. When a users action indicates that a new document
-            should be presented you should first present a loadingIndicator. This will provide
-            the user feedback if the app is taking a long time loading the data or the next 
-            document.
-            */
-            self.showLoadingIndicator(presentation);
-
-            /* 
-            Here we are retrieving the template listed in the templateURL property.
-            */
-            resourceLoader.loadResource(templateURL,
-                function(resource) {
-                    if (resource) {
-                        /*
-                        The XML template must be turned into a DOMDocument in order to be 
-                        presented to the user. See the implementation of makeDocument below.
-                        */
-                        var doc = self.makeDocument(resource);
-                        
-                        /*
-                        Event listeners are used to handle and process user actions or events. Listeners
-                        can be added to the document or to each element. Events are bubbled up through the
-                        DOM heirarchy and can be handled or cancelled at at any point.
-
-                        Listeners can be added before or after the document has been presented.
-
-                        For a complete list of available events, see the TVMLKit DOM Documentation.
-                        */
-                        doc.addEventListener("select", self.load.bind(self));
-                        doc.addEventListener("highlight", self.load.bind(self));
-
-
-                        /*
-                        This is a convenience implementation for choosing the appropriate method to 
-                        present the document. 
-                        */
-                        if (self[presentation] instanceof Function) {
-                            self[presentation].call(self, doc, ele);
-                        } else {
-                            self.defaultPresenter.call(self, doc);
-                        }
-                    }
-                }
-            );
-        }
-    },
-
-    /**
-     * @description This function creates a XML document from the contents of a template file.
-     * In this example we are utilizing the DOMParser to transform the Index template from a 
-     * string representation into a DOMDocument.
-     *
-     * @param {String} resource - The contents of the template file
-     * @return {Document} - XML Document
-     */
-    makeDocument: function(resource) {
-        if (!Presenter.parser) {
-            Presenter.parser = new DOMParser();
-        }
-
-        var doc = Presenter.parser.parseFromString(resource, "application/xml");
-        return doc;
-    },
-
-    /**
-     * @description This function handles the display of loading indicators.
-     *
-     * @param {String} presentation - The presentation function name
-     */
-    showLoadingIndicator: function(presentation) {
-        /*
-        You can reuse documents that have previously been created. In this implementation
-        we check to see if a loadingIndicator document has already been created. If it 
-        hasn't then we create one.
-        */
-        if (!this.loadingIndicator) {
-            this.loadingIndicator = this.makeDocument(this.loadingTemplate);
-        }
-        
-        /* 
-        Only show the indicator if one isn't already visible and we aren't presenting a modal.
-        */
-        if (!this.loadingIndicatorVisible && presentation != "modalDialogPresenter" && presentation != "menuBarItemPresenter") {
-            navigationDocument.pushDocument(this.loadingIndicator);
-            this.loadingIndicatorVisible = true;
-        }
-    },
-
-    /**
-     * @description This function handles the removal of loading indicators.
-     * If a loading indicator is visible, it removes it from the stack and sets the loadingIndicatorVisible attribute to false.
-     */
-    removeLoadingIndicator: function() {
-        if (this.loadingIndicatorVisible) {
-            navigationDocument.removeDocument(this.loadingIndicator);
-            this.loadingIndicatorVisible = false;
-        }
-    },
-
-    /**
-     * @description Instead of a loading a template from the server, it can stored in a property 
-     * or variable for convenience. This is generally employed for templates that can be reused and
-     * aren't going to change often, like a loadingIndicator.
-     */
-    loadingTemplate: `<?xml version="1.0" encoding="UTF-8" ?>
-        <document>
-          <loadingTemplate>
-            <activityIndicator>
-              <text>Loading...</text>
-            </activityIndicator>
-          </loadingTemplate>
-        </document>`
+function tripletToBase64 (num) {
+  return lookup[num >> 18 & 0x3F] + lookup[num >> 12 & 0x3F] + lookup[num >> 6 & 0x3F] + lookup[num & 0x3F]
 }
 
-
-module.exports = Presenter
-},{}],4:[function(require,module,exports){
-/**
- * Module that handles calls to feedly
- *
- * Created by cha on 4/2/2016.
- */
-
-var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
-var Feedly = {
-    feedcache: {
-        lastUpdate:undefined
-    },
-    maxAge: 1000 * 60 * 5,
-    maxNews: 100,
-    maxProviders:10,
-
-    urlCache: {
-
-    },
-
-    request: function (url, callback) {
-        var xmlhttp = new XMLHttpRequest();
-        xmlhttp.onreadystatechange = function () {
-            if (xmlhttp.readyState == 4){
-                if(xmlhttp.status = 200){
-                    callback(xmlhttp.responseText);
-                }else{
-                    console.log("failed request " + url)
-                }
-            }
-        };
-        xmlhttp.open("GET", url, true);
-        xmlhttp.send();
-    },
-
-    getProviders: function (callback) {
-
-        this.request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count='+this.maxProviders, function (body) {
-            callback(parse(body))
-        });
-
-        function parse(body) {
-            var providers = [];
-            var response = JSON.parse(body);
-            var results = response.results;
-            results.forEach(function (result) {
-                var provider = {};
-                provider.feedId = result.feedId;
-                provider.name = result.website;
-                if (provider.name == null) {
-                    provider.name = result.title
-                }
-                provider.iconUrl = result.iconUrl;
-                providers.push(provider)
-            });
-            return providers
-        }
-    },
-
-    parseEntries: function (provider, result) {
-        function stripHtml(html){
-            return html.replace(/<(?:.|\n)*?>/gm, '');
-        }
-        var parsed = JSON.parse(result);
-        var entries = [];
-        if (parsed.items) {
-            parsed.items.forEach(function (item) {
-                var newsItem = {};
-                newsItem.title = item.title;
-                if (item.summary){
-                    var wrapped = "<![CDATA["+item.summary.content+"]]>";
-                    var strippedContent = stripHtml(item.summary.content);
-                    newsItem.summary = strippedContent
-                }
-                newsItem.content = item.content;
-                if (item.visual && item.visual.url){
-                    newsItem.visual = item.visual.url;
-                }
-
-
-                newsItem.published = new Date(item.published).toDateString();
-                newsItem.timeStamp = item.published;
-                newsItem.provider = provider.name;
-                if (newsItem.visual  && newsItem.visual.length > 10) {
-                    if(newsItem.summary && newsItem.summary.length > 10)
-                        entries.push(newsItem)
-
-                }
-            });
-        }
-        return entries
-    },
-
-    getProviderNews: function (provider, newerThan, callback) {
-        var self = this
-        var feedid = provider.feedId;
-        if (newerThan != null) {
-            this.request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count='+this.maxNews+'&newerThan=' + newerThan, handleResult)
-        } else {
-            this.request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count='+this.maxNews, handleResult)
-        }
-
-        function handleResult(result) {
-            var entries = self.parseEntries(provider, result);
-
-            callback(entries)
-        }
-
-    },
-
-    getSomeNews: function (antal,callBack) {
-        var self = this
-        var items
-        // only call for new news every maxAge minutes or first time
-
-        function isToOld() {
-            return self.feedcache.lastUpdate != null && Date.now() - self.feedcache.lastUpdate > this.maxAge;
-        }
-
-        function firstTime() {
-            if(!self.feedcache.lastUpdate){
-                return true
-            }else{
-                return false
-            }
-        }
-
-        if (true ||firstTime() ||  isToOld() ) {
-            this.getAllNewsFrom(null, function (list) {
-                list.sort(function(a,b){
-                    return b.timeStamp - a.timeStamp;
-                })
-                self.feedcache.lastUpdate = Date.now
-                self.feedcache.data = list;
-                if(antal){
-                    callBack(list.slice(0,antal));
-                }else{
-                    callBack(list);
-                }
-
-            })
-        } else {
-            callBack(self.feedcache.data)
-        }
-
-
-    },
-    getAllNews: function(callback){
-        var self = this
-      return self.getSomeNews(null,callback);
-    },
-    getAllNewsFrom: function (newerThan, callback) {
-        var self = this
-        this.getProviders(function (result) {
-            var allList = [];
-            var providers = result
-            var count = providers.length;
-
-            providers.forEach(function (provider) {
-                self.getProviderNews(provider, newerThan, function (list) {
-                    count = count - 1;
-                    if (list.length > 0) {
-                        allList.push.apply(allList, list);
-                    }
-                    if (count == 0) {
-                        callback(allList)
-                    }
-                })
-            })
-
-        })
-
-    }
+function encodeChunk (uint8, start, end) {
+  var tmp
+  var output = []
+  for (var i = start; i < end; i += 3) {
+    tmp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
+    output.push(tripletToBase64(tmp))
+  }
+  return output.join('')
 }
 
+function fromByteArray (uint8) {
+  var tmp
+  var len = uint8.length
+  var extraBytes = len % 3 // if we have 1 byte left, pad 2 bytes
+  var output = ''
+  var parts = []
+  var maxChunkLength = 16383 // must be multiple of 3
 
+  // go through the array every three bytes, we'll deal with trailing stuff later
+  for (var i = 0, len2 = len - extraBytes; i < len2; i += maxChunkLength) {
+    parts.push(encodeChunk(uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)))
+  }
 
+  // pad the end with zeros, but make sure to not forget the extra bytes
+  if (extraBytes === 1) {
+    tmp = uint8[len - 1]
+    output += lookup[tmp >> 2]
+    output += lookup[(tmp << 4) & 0x3F]
+    output += '=='
+  } else if (extraBytes === 2) {
+    tmp = (uint8[len - 2] << 8) + (uint8[len - 1])
+    output += lookup[tmp >> 10]
+    output += lookup[(tmp >> 4) & 0x3F]
+    output += lookup[(tmp << 2) & 0x3F]
+    output += '='
+  }
 
-module.exports = Feedly
-},{"xmlhttprequest":1}],5:[function(require,module,exports){
-// version 2
+  parts.push(output)
 
-String.prototype.replaceAll = function(search, replace) {
-    if (replace === undefined) {
-        return this.toString();
-    }
-    return this.split(search).join(replace);
+  return parts.join('')
 }
 
-
-var Templater = {
-    createDoc : function(data){
-        var self = this
-        var lockups = ""
-
-        data.forEach(function(item){
-            var lockup = self.construct(item.visual,item.title,item.summary,item.provider,item.published)
-            lockups = lockups+lockup
-        })
-        var doc = this.fullDoc(lockups)
-        return this.encode(doc)
-    },
-
-    construct : function(image,title,summary,provider,published){
-        var itemXML =
-            `<lockup>
-                <img src="${image}" width="1220" />
-                <title>${title}</title>
-                <description allowsZooming="true">${summary} - ${provider} - ${published}</description>
-             </lockup>`
-        return itemXML
-    },
-
-    fullDoc : function(lockups,provider) { return `<?xml version="1.0" encoding="UTF-8" ?>
-        <document>
-           <showcaseTemplate>
-              <background>
-              <img src="http://www.bodiehodgesfoundation.co.uk/wp-content/uploads/2013/05/new-black-silver-grey-background-wallpaper-desktop-background.jpg"/>
-              </background>
-              <banner>
-                 <title>Danske Nyheder</title>
-              </banner>
-              <carousel>
-                 <section>
-                    ${lockups}
-                 </section>
-              </carousel>
-           </showcaseTemplate>
-        </document>`
-    },
-    
-    encode : function(doc) {
-        function removeAmp(result) {
-            return result.replaceAll("&","&amp;")
-        }
-        var encodedDoc = removeAmp(doc)
-        return encodedDoc
-    }
-    
-    
-}
-    
-
-
-module.exports = Templater
-
-
-},{}],6:[function(require,module,exports){
-
-},{}],7:[function(require,module,exports){
-arguments[4][6][0].apply(exports,arguments)
-},{"dup":6}],8:[function(require,module,exports){
+},{}],3:[function(require,module,exports){
+arguments[4][1][0].apply(exports,arguments)
+},{"dup":1}],4:[function(require,module,exports){
 (function (global){
 /*!
  * The buffer module from node.js, for the browser.
@@ -2895,211 +1828,190 @@ function isnan (val) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"base64-js":9,"ieee754":10,"isarray":11}],9:[function(require,module,exports){
-'use strict'
-
-exports.toByteArray = toByteArray
-exports.fromByteArray = fromByteArray
-
-var lookup = []
-var revLookup = []
-var Arr = typeof Uint8Array !== 'undefined' ? Uint8Array : Array
-
-function init () {
-  var code = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
-  for (var i = 0, len = code.length; i < len; ++i) {
-    lookup[i] = code[i]
-    revLookup[code.charCodeAt(i)] = i
-  }
-
-  revLookup['-'.charCodeAt(0)] = 62
-  revLookup['_'.charCodeAt(0)] = 63
-}
-
-init()
-
-function toByteArray (b64) {
-  var i, j, l, tmp, placeHolders, arr
-  var len = b64.length
-
-  if (len % 4 > 0) {
-    throw new Error('Invalid string. Length must be a multiple of 4')
-  }
-
-  // the number of equal signs (place holders)
-  // if there are two placeholders, than the two characters before it
-  // represent one byte
-  // if there is only one, then the three characters before it represent 2 bytes
-  // this is just a cheap hack to not do indexOf twice
-  placeHolders = b64[len - 2] === '=' ? 2 : b64[len - 1] === '=' ? 1 : 0
-
-  // base64 is 4/3 + up to two characters of the original data
-  arr = new Arr(len * 3 / 4 - placeHolders)
-
-  // if there are placeholders, only get up to the last complete 4 chars
-  l = placeHolders > 0 ? len - 4 : len
-
-  var L = 0
-
-  for (i = 0, j = 0; i < l; i += 4, j += 3) {
-    tmp = (revLookup[b64.charCodeAt(i)] << 18) | (revLookup[b64.charCodeAt(i + 1)] << 12) | (revLookup[b64.charCodeAt(i + 2)] << 6) | revLookup[b64.charCodeAt(i + 3)]
-    arr[L++] = (tmp >> 16) & 0xFF
-    arr[L++] = (tmp >> 8) & 0xFF
-    arr[L++] = tmp & 0xFF
-  }
-
-  if (placeHolders === 2) {
-    tmp = (revLookup[b64.charCodeAt(i)] << 2) | (revLookup[b64.charCodeAt(i + 1)] >> 4)
-    arr[L++] = tmp & 0xFF
-  } else if (placeHolders === 1) {
-    tmp = (revLookup[b64.charCodeAt(i)] << 10) | (revLookup[b64.charCodeAt(i + 1)] << 4) | (revLookup[b64.charCodeAt(i + 2)] >> 2)
-    arr[L++] = (tmp >> 8) & 0xFF
-    arr[L++] = tmp & 0xFF
-  }
-
-  return arr
-}
-
-function tripletToBase64 (num) {
-  return lookup[num >> 18 & 0x3F] + lookup[num >> 12 & 0x3F] + lookup[num >> 6 & 0x3F] + lookup[num & 0x3F]
-}
-
-function encodeChunk (uint8, start, end) {
-  var tmp
-  var output = []
-  for (var i = start; i < end; i += 3) {
-    tmp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
-    output.push(tripletToBase64(tmp))
-  }
-  return output.join('')
-}
-
-function fromByteArray (uint8) {
-  var tmp
-  var len = uint8.length
-  var extraBytes = len % 3 // if we have 1 byte left, pad 2 bytes
-  var output = ''
-  var parts = []
-  var maxChunkLength = 16383 // must be multiple of 3
-
-  // go through the array every three bytes, we'll deal with trailing stuff later
-  for (var i = 0, len2 = len - extraBytes; i < len2; i += maxChunkLength) {
-    parts.push(encodeChunk(uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)))
-  }
-
-  // pad the end with zeros, but make sure to not forget the extra bytes
-  if (extraBytes === 1) {
-    tmp = uint8[len - 1]
-    output += lookup[tmp >> 2]
-    output += lookup[(tmp << 4) & 0x3F]
-    output += '=='
-  } else if (extraBytes === 2) {
-    tmp = (uint8[len - 2] << 8) + (uint8[len - 1])
-    output += lookup[tmp >> 10]
-    output += lookup[(tmp >> 4) & 0x3F]
-    output += lookup[(tmp << 2) & 0x3F]
-    output += '='
-  }
-
-  parts.push(output)
-
-  return parts.join('')
-}
-
-},{}],10:[function(require,module,exports){
-exports.read = function (buffer, offset, isLE, mLen, nBytes) {
-  var e, m
-  var eLen = nBytes * 8 - mLen - 1
-  var eMax = (1 << eLen) - 1
-  var eBias = eMax >> 1
-  var nBits = -7
-  var i = isLE ? (nBytes - 1) : 0
-  var d = isLE ? -1 : 1
-  var s = buffer[offset + i]
-
-  i += d
-
-  e = s & ((1 << (-nBits)) - 1)
-  s >>= (-nBits)
-  nBits += eLen
-  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8) {}
-
-  m = e & ((1 << (-nBits)) - 1)
-  e >>= (-nBits)
-  nBits += mLen
-  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8) {}
-
-  if (e === 0) {
-    e = 1 - eBias
-  } else if (e === eMax) {
-    return m ? NaN : ((s ? -1 : 1) * Infinity)
-  } else {
-    m = m + Math.pow(2, mLen)
-    e = e - eBias
-  }
-  return (s ? -1 : 1) * m * Math.pow(2, e - mLen)
-}
-
-exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
-  var e, m, c
-  var eLen = nBytes * 8 - mLen - 1
-  var eMax = (1 << eLen) - 1
-  var eBias = eMax >> 1
-  var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0)
-  var i = isLE ? 0 : (nBytes - 1)
-  var d = isLE ? 1 : -1
-  var s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0
-
-  value = Math.abs(value)
-
-  if (isNaN(value) || value === Infinity) {
-    m = isNaN(value) ? 1 : 0
-    e = eMax
-  } else {
-    e = Math.floor(Math.log(value) / Math.LN2)
-    if (value * (c = Math.pow(2, -e)) < 1) {
-      e--
-      c *= 2
-    }
-    if (e + eBias >= 1) {
-      value += rt / c
-    } else {
-      value += rt * Math.pow(2, 1 - eBias)
-    }
-    if (value * c >= 2) {
-      e++
-      c /= 2
-    }
-
-    if (e + eBias >= eMax) {
-      m = 0
-      e = eMax
-    } else if (e + eBias >= 1) {
-      m = (value * c - 1) * Math.pow(2, mLen)
-      e = e + eBias
-    } else {
-      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen)
-      e = 0
-    }
-  }
-
-  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8) {}
-
-  e = (e << mLen) | m
-  eLen += mLen
-  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8) {}
-
-  buffer[offset + i - d] |= s * 128
-}
-
-},{}],11:[function(require,module,exports){
+},{"base64-js":2,"ieee754":10,"isarray":5}],5:[function(require,module,exports){
 var toString = {}.toString;
 
 module.exports = Array.isArray || function (arr) {
   return toString.call(arr) == '[object Array]';
 };
 
-},{}],12:[function(require,module,exports){
+},{}],6:[function(require,module,exports){
+module.exports = {
+  "100": "Continue",
+  "101": "Switching Protocols",
+  "102": "Processing",
+  "200": "OK",
+  "201": "Created",
+  "202": "Accepted",
+  "203": "Non-Authoritative Information",
+  "204": "No Content",
+  "205": "Reset Content",
+  "206": "Partial Content",
+  "207": "Multi-Status",
+  "208": "Already Reported",
+  "226": "IM Used",
+  "300": "Multiple Choices",
+  "301": "Moved Permanently",
+  "302": "Found",
+  "303": "See Other",
+  "304": "Not Modified",
+  "305": "Use Proxy",
+  "307": "Temporary Redirect",
+  "308": "Permanent Redirect",
+  "400": "Bad Request",
+  "401": "Unauthorized",
+  "402": "Payment Required",
+  "403": "Forbidden",
+  "404": "Not Found",
+  "405": "Method Not Allowed",
+  "406": "Not Acceptable",
+  "407": "Proxy Authentication Required",
+  "408": "Request Timeout",
+  "409": "Conflict",
+  "410": "Gone",
+  "411": "Length Required",
+  "412": "Precondition Failed",
+  "413": "Payload Too Large",
+  "414": "URI Too Long",
+  "415": "Unsupported Media Type",
+  "416": "Range Not Satisfiable",
+  "417": "Expectation Failed",
+  "418": "I'm a teapot",
+  "421": "Misdirected Request",
+  "422": "Unprocessable Entity",
+  "423": "Locked",
+  "424": "Failed Dependency",
+  "425": "Unordered Collection",
+  "426": "Upgrade Required",
+  "428": "Precondition Required",
+  "429": "Too Many Requests",
+  "431": "Request Header Fields Too Large",
+  "500": "Internal Server Error",
+  "501": "Not Implemented",
+  "502": "Bad Gateway",
+  "503": "Service Unavailable",
+  "504": "Gateway Timeout",
+  "505": "HTTP Version Not Supported",
+  "506": "Variant Also Negotiates",
+  "507": "Insufficient Storage",
+  "508": "Loop Detected",
+  "509": "Bandwidth Limit Exceeded",
+  "510": "Not Extended",
+  "511": "Network Authentication Required"
+}
+
+},{}],7:[function(require,module,exports){
+(function (Buffer){
+// Copyright Joyent, Inc. and other Node contributors.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to permit
+// persons to whom the Software is furnished to do so, subject to the
+// following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
+// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+// USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+// NOTE: These type checking functions intentionally don't use `instanceof`
+// because it is fragile and can be easily faked with `Object.create()`.
+
+function isArray(arg) {
+  if (Array.isArray) {
+    return Array.isArray(arg);
+  }
+  return objectToString(arg) === '[object Array]';
+}
+exports.isArray = isArray;
+
+function isBoolean(arg) {
+  return typeof arg === 'boolean';
+}
+exports.isBoolean = isBoolean;
+
+function isNull(arg) {
+  return arg === null;
+}
+exports.isNull = isNull;
+
+function isNullOrUndefined(arg) {
+  return arg == null;
+}
+exports.isNullOrUndefined = isNullOrUndefined;
+
+function isNumber(arg) {
+  return typeof arg === 'number';
+}
+exports.isNumber = isNumber;
+
+function isString(arg) {
+  return typeof arg === 'string';
+}
+exports.isString = isString;
+
+function isSymbol(arg) {
+  return typeof arg === 'symbol';
+}
+exports.isSymbol = isSymbol;
+
+function isUndefined(arg) {
+  return arg === void 0;
+}
+exports.isUndefined = isUndefined;
+
+function isRegExp(re) {
+  return objectToString(re) === '[object RegExp]';
+}
+exports.isRegExp = isRegExp;
+
+function isObject(arg) {
+  return typeof arg === 'object' && arg !== null;
+}
+exports.isObject = isObject;
+
+function isDate(d) {
+  return objectToString(d) === '[object Date]';
+}
+exports.isDate = isDate;
+
+function isError(e) {
+  return (objectToString(e) === '[object Error]' || e instanceof Error);
+}
+exports.isError = isError;
+
+function isFunction(arg) {
+  return typeof arg === 'function';
+}
+exports.isFunction = isFunction;
+
+function isPrimitive(arg) {
+  return arg === null ||
+         typeof arg === 'boolean' ||
+         typeof arg === 'number' ||
+         typeof arg === 'string' ||
+         typeof arg === 'symbol' ||  // ES6 symbol
+         typeof arg === 'undefined';
+}
+exports.isPrimitive = isPrimitive;
+
+exports.isBuffer = Buffer.isBuffer;
+
+function objectToString(o) {
+  return Object.prototype.toString.call(o);
+}
+
+}).call(this,{"isBuffer":require("../../is-buffer/index.js")})
+},{"../../is-buffer/index.js":12}],8:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -3399,7 +2311,7 @@ function isUndefined(arg) {
   return arg === void 0;
 }
 
-},{}],13:[function(require,module,exports){
+},{}],9:[function(require,module,exports){
 var http = require('http');
 
 var https = module.exports;
@@ -3415,7 +2327,93 @@ https.request = function (params, cb) {
     return http.request.call(this, params, cb);
 }
 
-},{"http":31}],14:[function(require,module,exports){
+},{"http":26}],10:[function(require,module,exports){
+exports.read = function (buffer, offset, isLE, mLen, nBytes) {
+  var e, m
+  var eLen = nBytes * 8 - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var nBits = -7
+  var i = isLE ? (nBytes - 1) : 0
+  var d = isLE ? -1 : 1
+  var s = buffer[offset + i]
+
+  i += d
+
+  e = s & ((1 << (-nBits)) - 1)
+  s >>= (-nBits)
+  nBits += eLen
+  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8) {}
+
+  m = e & ((1 << (-nBits)) - 1)
+  e >>= (-nBits)
+  nBits += mLen
+  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8) {}
+
+  if (e === 0) {
+    e = 1 - eBias
+  } else if (e === eMax) {
+    return m ? NaN : ((s ? -1 : 1) * Infinity)
+  } else {
+    m = m + Math.pow(2, mLen)
+    e = e - eBias
+  }
+  return (s ? -1 : 1) * m * Math.pow(2, e - mLen)
+}
+
+exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
+  var e, m, c
+  var eLen = nBytes * 8 - mLen - 1
+  var eMax = (1 << eLen) - 1
+  var eBias = eMax >> 1
+  var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0)
+  var i = isLE ? 0 : (nBytes - 1)
+  var d = isLE ? 1 : -1
+  var s = value < 0 || (value === 0 && 1 / value < 0) ? 1 : 0
+
+  value = Math.abs(value)
+
+  if (isNaN(value) || value === Infinity) {
+    m = isNaN(value) ? 1 : 0
+    e = eMax
+  } else {
+    e = Math.floor(Math.log(value) / Math.LN2)
+    if (value * (c = Math.pow(2, -e)) < 1) {
+      e--
+      c *= 2
+    }
+    if (e + eBias >= 1) {
+      value += rt / c
+    } else {
+      value += rt * Math.pow(2, 1 - eBias)
+    }
+    if (value * c >= 2) {
+      e++
+      c /= 2
+    }
+
+    if (e + eBias >= eMax) {
+      m = 0
+      e = eMax
+    } else if (e + eBias >= 1) {
+      m = (value * c - 1) * Math.pow(2, mLen)
+      e = e + eBias
+    } else {
+      m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen)
+      e = 0
+    }
+  }
+
+  for (; mLen >= 8; buffer[offset + i] = m & 0xff, i += d, m /= 256, mLen -= 8) {}
+
+  e = (e << mLen) | m
+  eLen += mLen
+  for (; eLen > 0; buffer[offset + i] = e & 0xff, i += d, e /= 256, eLen -= 8) {}
+
+  buffer[offset + i - d] |= s * 128
+}
+
+},{}],11:[function(require,module,exports){
 if (typeof Object.create === 'function') {
   // implementation from standard node.js 'util' module
   module.exports = function inherits(ctor, superCtor) {
@@ -3440,7 +2438,7 @@ if (typeof Object.create === 'function') {
   }
 }
 
-},{}],15:[function(require,module,exports){
+},{}],12:[function(require,module,exports){
 /**
  * Determine if an object is Buffer
  *
@@ -3459,7 +2457,31 @@ module.exports = function (obj) {
     ))
 }
 
-},{}],16:[function(require,module,exports){
+},{}],13:[function(require,module,exports){
+(function (process){
+'use strict';
+
+if (!process.version ||
+    process.version.indexOf('v0.') === 0 ||
+    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
+  module.exports = nextTick;
+} else {
+  module.exports = process.nextTick;
+}
+
+function nextTick(fn) {
+  var args = new Array(arguments.length - 1);
+  var i = 0;
+  while (i < args.length) {
+    args[i++] = arguments[i];
+  }
+  process.nextTick(function afterTick() {
+    fn.apply(null, args);
+  });
+}
+
+}).call(this,require('_process'))
+},{"_process":14}],14:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -3552,7 +2574,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],17:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 (function (global){
 /*! https://mths.be/punycode v1.4.1 by @mathias */
 ;(function(root) {
@@ -4089,7 +3111,7 @@ process.umask = function() { return 0; };
 }(this));
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],18:[function(require,module,exports){
+},{}],16:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4175,7 +3197,7 @@ var isArray = Array.isArray || function (xs) {
   return Object.prototype.toString.call(xs) === '[object Array]';
 };
 
-},{}],19:[function(require,module,exports){
+},{}],17:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -4262,13 +3284,13 @@ var objectKeys = Object.keys || function (obj) {
   return res;
 };
 
-},{}],20:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 'use strict';
 
 exports.decode = exports.parse = require('./decode');
 exports.encode = exports.stringify = require('./encode');
 
-},{"./decode":18,"./encode":19}],21:[function(require,module,exports){
+},{"./decode":16,"./encode":17}],19:[function(require,module,exports){
 // a duplex stream is just a stream that is both readable and writable.
 // Since JS doesn't have multiple prototypal inheritance, this class
 // prototypally inherits from Readable, and then parasitically from
@@ -4344,7 +3366,7 @@ function forEach(xs, f) {
     f(xs[i], i);
   }
 }
-},{"./_stream_readable":23,"./_stream_writable":25,"core-util-is":26,"inherits":14,"process-nextick-args":28}],22:[function(require,module,exports){
+},{"./_stream_readable":21,"./_stream_writable":23,"core-util-is":7,"inherits":11,"process-nextick-args":13}],20:[function(require,module,exports){
 // a passthrough stream.
 // basically just the most minimal sort of Transform stream.
 // Every written chunk gets output as-is.
@@ -4371,7 +3393,7 @@ function PassThrough(options) {
 PassThrough.prototype._transform = function (chunk, encoding, cb) {
   cb(null, chunk);
 };
-},{"./_stream_transform":24,"core-util-is":26,"inherits":14}],23:[function(require,module,exports){
+},{"./_stream_transform":22,"core-util-is":7,"inherits":11}],21:[function(require,module,exports){
 (function (process){
 'use strict';
 
@@ -5254,7 +4276,7 @@ function indexOf(xs, x) {
   return -1;
 }
 }).call(this,require('_process'))
-},{"./_stream_duplex":21,"_process":16,"buffer":8,"core-util-is":26,"events":12,"inherits":14,"isarray":27,"process-nextick-args":28,"string_decoder/":37,"util":7}],24:[function(require,module,exports){
+},{"./_stream_duplex":19,"_process":14,"buffer":4,"core-util-is":7,"events":8,"inherits":11,"isarray":24,"process-nextick-args":13,"string_decoder/":30,"util":3}],22:[function(require,module,exports){
 // a transform stream is a readable/writable stream where you do
 // something with the data.  Sometimes it's called a "filter",
 // but that's not a great name for it, since that implies a thing where
@@ -5435,7 +4457,7 @@ function done(stream, er) {
 
   return stream.push(null);
 }
-},{"./_stream_duplex":21,"core-util-is":26,"inherits":14}],25:[function(require,module,exports){
+},{"./_stream_duplex":19,"core-util-is":7,"inherits":11}],23:[function(require,module,exports){
 (function (process){
 // A bit simpler than readable streams.
 // Implement an async ._write(chunk, encoding, cb), and it'll handle all
@@ -5954,215 +4976,9 @@ function CorkedRequest(state) {
   };
 }
 }).call(this,require('_process'))
-},{"./_stream_duplex":21,"_process":16,"buffer":8,"core-util-is":26,"events":12,"inherits":14,"process-nextick-args":28,"util-deprecate":29}],26:[function(require,module,exports){
-(function (Buffer){
-// Copyright Joyent, Inc. and other Node contributors.
-//
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and associated documentation files (the
-// "Software"), to deal in the Software without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Software, and to permit
-// persons to whom the Software is furnished to do so, subject to the
-// following conditions:
-//
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
-// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN
-// NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-// DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-// OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
-// USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-// NOTE: These type checking functions intentionally don't use `instanceof`
-// because it is fragile and can be easily faked with `Object.create()`.
-
-function isArray(arg) {
-  if (Array.isArray) {
-    return Array.isArray(arg);
-  }
-  return objectToString(arg) === '[object Array]';
-}
-exports.isArray = isArray;
-
-function isBoolean(arg) {
-  return typeof arg === 'boolean';
-}
-exports.isBoolean = isBoolean;
-
-function isNull(arg) {
-  return arg === null;
-}
-exports.isNull = isNull;
-
-function isNullOrUndefined(arg) {
-  return arg == null;
-}
-exports.isNullOrUndefined = isNullOrUndefined;
-
-function isNumber(arg) {
-  return typeof arg === 'number';
-}
-exports.isNumber = isNumber;
-
-function isString(arg) {
-  return typeof arg === 'string';
-}
-exports.isString = isString;
-
-function isSymbol(arg) {
-  return typeof arg === 'symbol';
-}
-exports.isSymbol = isSymbol;
-
-function isUndefined(arg) {
-  return arg === void 0;
-}
-exports.isUndefined = isUndefined;
-
-function isRegExp(re) {
-  return objectToString(re) === '[object RegExp]';
-}
-exports.isRegExp = isRegExp;
-
-function isObject(arg) {
-  return typeof arg === 'object' && arg !== null;
-}
-exports.isObject = isObject;
-
-function isDate(d) {
-  return objectToString(d) === '[object Date]';
-}
-exports.isDate = isDate;
-
-function isError(e) {
-  return (objectToString(e) === '[object Error]' || e instanceof Error);
-}
-exports.isError = isError;
-
-function isFunction(arg) {
-  return typeof arg === 'function';
-}
-exports.isFunction = isFunction;
-
-function isPrimitive(arg) {
-  return arg === null ||
-         typeof arg === 'boolean' ||
-         typeof arg === 'number' ||
-         typeof arg === 'string' ||
-         typeof arg === 'symbol' ||  // ES6 symbol
-         typeof arg === 'undefined';
-}
-exports.isPrimitive = isPrimitive;
-
-exports.isBuffer = Buffer.isBuffer;
-
-function objectToString(o) {
-  return Object.prototype.toString.call(o);
-}
-
-}).call(this,{"isBuffer":require("../../../../insert-module-globals/node_modules/is-buffer/index.js")})
-},{"../../../../insert-module-globals/node_modules/is-buffer/index.js":15}],27:[function(require,module,exports){
-arguments[4][11][0].apply(exports,arguments)
-},{"dup":11}],28:[function(require,module,exports){
-(function (process){
-'use strict';
-
-if (!process.version ||
-    process.version.indexOf('v0.') === 0 ||
-    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
-  module.exports = nextTick;
-} else {
-  module.exports = process.nextTick;
-}
-
-function nextTick(fn) {
-  var args = new Array(arguments.length - 1);
-  var i = 0;
-  while (i < args.length) {
-    args[i++] = arguments[i];
-  }
-  process.nextTick(function afterTick() {
-    fn.apply(null, args);
-  });
-}
-
-}).call(this,require('_process'))
-},{"_process":16}],29:[function(require,module,exports){
-(function (global){
-
-/**
- * Module exports.
- */
-
-module.exports = deprecate;
-
-/**
- * Mark that a method should not be used.
- * Returns a modified function which warns once by default.
- *
- * If `localStorage.noDeprecation = true` is set, then it is a no-op.
- *
- * If `localStorage.throwDeprecation = true` is set, then deprecated functions
- * will throw an Error when invoked.
- *
- * If `localStorage.traceDeprecation = true` is set, then deprecated functions
- * will invoke `console.trace()` instead of `console.error()`.
- *
- * @param {Function} fn - the function to deprecate
- * @param {String} msg - the string to print to the console when `fn` is invoked
- * @returns {Function} a new "deprecated" version of `fn`
- * @api public
- */
-
-function deprecate (fn, msg) {
-  if (config('noDeprecation')) {
-    return fn;
-  }
-
-  var warned = false;
-  function deprecated() {
-    if (!warned) {
-      if (config('throwDeprecation')) {
-        throw new Error(msg);
-      } else if (config('traceDeprecation')) {
-        console.trace(msg);
-      } else {
-        console.warn(msg);
-      }
-      warned = true;
-    }
-    return fn.apply(this, arguments);
-  }
-
-  return deprecated;
-}
-
-/**
- * Checks `localStorage` for boolean values for the given `name`.
- *
- * @param {String} name
- * @returns {Boolean}
- * @api private
- */
-
-function config (name) {
-  // accessing global.localStorage can trigger a DOMException in sandboxed iframes
-  try {
-    if (!global.localStorage) return false;
-  } catch (_) {
-    return false;
-  }
-  var val = global.localStorage[name];
-  if (null == val) return false;
-  return String(val).toLowerCase() === 'true';
-}
-
-}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],30:[function(require,module,exports){
+},{"./_stream_duplex":19,"_process":14,"buffer":4,"core-util-is":7,"events":8,"inherits":11,"process-nextick-args":13,"util-deprecate":34}],24:[function(require,module,exports){
+arguments[4][5][0].apply(exports,arguments)
+},{"dup":5}],25:[function(require,module,exports){
 (function (process){
 var Stream = (function (){
   try {
@@ -6182,7 +4998,7 @@ if (!process.browser && process.env.READABLE_STREAM === 'disable' && Stream) {
 }
 
 }).call(this,require('_process'))
-},{"./lib/_stream_duplex.js":21,"./lib/_stream_passthrough.js":22,"./lib/_stream_readable.js":23,"./lib/_stream_transform.js":24,"./lib/_stream_writable.js":25,"_process":16}],31:[function(require,module,exports){
+},{"./lib/_stream_duplex.js":19,"./lib/_stream_passthrough.js":20,"./lib/_stream_readable.js":21,"./lib/_stream_transform.js":22,"./lib/_stream_writable.js":23,"_process":14}],26:[function(require,module,exports){
 (function (global){
 var ClientRequest = require('./lib/request')
 var extend = require('xtend')
@@ -6264,7 +5080,7 @@ http.METHODS = [
 	'UNSUBSCRIBE'
 ]
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./lib/request":33,"builtin-status-codes":35,"url":38,"xtend":40}],32:[function(require,module,exports){
+},{"./lib/request":28,"builtin-status-codes":6,"url":32,"xtend":35}],27:[function(require,module,exports){
 (function (global){
 exports.fetch = isFunction(global.fetch) && isFunction(global.ReadableByteStream)
 
@@ -6308,7 +5124,7 @@ function isFunction (value) {
 xhr = null // Help gc
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{}],33:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 (function (process,global,Buffer){
 var capability = require('./capability')
 var inherits = require('inherits')
@@ -6589,7 +5405,7 @@ var unsafeHeaders = [
 ]
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"./capability":32,"./response":34,"_process":16,"buffer":8,"inherits":14,"readable-stream":30,"to-arraybuffer":36}],34:[function(require,module,exports){
+},{"./capability":27,"./response":29,"_process":14,"buffer":4,"inherits":11,"readable-stream":25,"to-arraybuffer":31}],29:[function(require,module,exports){
 (function (process,global,Buffer){
 var capability = require('./capability')
 var inherits = require('inherits')
@@ -6773,101 +5589,7 @@ IncomingMessage.prototype._onXHRProgress = function () {
 }
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("buffer").Buffer)
-},{"./capability":32,"_process":16,"buffer":8,"inherits":14,"readable-stream":30}],35:[function(require,module,exports){
-module.exports = {
-  "100": "Continue",
-  "101": "Switching Protocols",
-  "102": "Processing",
-  "200": "OK",
-  "201": "Created",
-  "202": "Accepted",
-  "203": "Non-Authoritative Information",
-  "204": "No Content",
-  "205": "Reset Content",
-  "206": "Partial Content",
-  "207": "Multi-Status",
-  "208": "Already Reported",
-  "226": "IM Used",
-  "300": "Multiple Choices",
-  "301": "Moved Permanently",
-  "302": "Found",
-  "303": "See Other",
-  "304": "Not Modified",
-  "305": "Use Proxy",
-  "307": "Temporary Redirect",
-  "308": "Permanent Redirect",
-  "400": "Bad Request",
-  "401": "Unauthorized",
-  "402": "Payment Required",
-  "403": "Forbidden",
-  "404": "Not Found",
-  "405": "Method Not Allowed",
-  "406": "Not Acceptable",
-  "407": "Proxy Authentication Required",
-  "408": "Request Timeout",
-  "409": "Conflict",
-  "410": "Gone",
-  "411": "Length Required",
-  "412": "Precondition Failed",
-  "413": "Payload Too Large",
-  "414": "URI Too Long",
-  "415": "Unsupported Media Type",
-  "416": "Range Not Satisfiable",
-  "417": "Expectation Failed",
-  "418": "I'm a teapot",
-  "421": "Misdirected Request",
-  "422": "Unprocessable Entity",
-  "423": "Locked",
-  "424": "Failed Dependency",
-  "425": "Unordered Collection",
-  "426": "Upgrade Required",
-  "428": "Precondition Required",
-  "429": "Too Many Requests",
-  "431": "Request Header Fields Too Large",
-  "500": "Internal Server Error",
-  "501": "Not Implemented",
-  "502": "Bad Gateway",
-  "503": "Service Unavailable",
-  "504": "Gateway Timeout",
-  "505": "HTTP Version Not Supported",
-  "506": "Variant Also Negotiates",
-  "507": "Insufficient Storage",
-  "508": "Loop Detected",
-  "509": "Bandwidth Limit Exceeded",
-  "510": "Not Extended",
-  "511": "Network Authentication Required"
-}
-
-},{}],36:[function(require,module,exports){
-var Buffer = require('buffer').Buffer
-
-module.exports = function (buf) {
-	// If the buffer is backed by a Uint8Array, a faster version will work
-	if (buf instanceof Uint8Array) {
-		// If the buffer isn't a subarray, return the underlying ArrayBuffer
-		if (buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength) {
-			return buf.buffer
-		} else if (typeof buf.buffer.slice === 'function') {
-			// Otherwise we need to get a proper copy
-			return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
-		}
-	}
-
-	if (Buffer.isBuffer(buf)) {
-		// This is the slow version that will work with any Buffer
-		// implementation (even in old browsers)
-		var arrayCopy = new Uint8Array(buf.length)
-		var len = buf.length
-		for (var i = 0; i < len; i++) {
-			arrayCopy[i] = buf[i]
-		}
-		return arrayCopy.buffer
-	} else {
-		throw new Error('Argument must be a Buffer')
-	}
-}
-
-},{"buffer":8}],37:[function(require,module,exports){
+},{"./capability":27,"_process":14,"buffer":4,"inherits":11,"readable-stream":25}],30:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -7090,7 +5812,36 @@ function base64DetectIncompleteChar(buffer) {
   this.charLength = this.charReceived ? 3 : 0;
 }
 
-},{"buffer":8}],38:[function(require,module,exports){
+},{"buffer":4}],31:[function(require,module,exports){
+var Buffer = require('buffer').Buffer
+
+module.exports = function (buf) {
+	// If the buffer is backed by a Uint8Array, a faster version will work
+	if (buf instanceof Uint8Array) {
+		// If the buffer isn't a subarray, return the underlying ArrayBuffer
+		if (buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength) {
+			return buf.buffer
+		} else if (typeof buf.buffer.slice === 'function') {
+			// Otherwise we need to get a proper copy
+			return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+		}
+	}
+
+	if (Buffer.isBuffer(buf)) {
+		// This is the slow version that will work with any Buffer
+		// implementation (even in old browsers)
+		var arrayCopy = new Uint8Array(buf.length)
+		var len = buf.length
+		for (var i = 0; i < len; i++) {
+			arrayCopy[i] = buf[i]
+		}
+		return arrayCopy.buffer
+	} else {
+		throw new Error('Argument must be a Buffer')
+	}
+}
+
+},{"buffer":4}],32:[function(require,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -7824,7 +6575,7 @@ Url.prototype.parseHost = function() {
   if (host) this.hostname = host;
 };
 
-},{"./util":39,"punycode":17,"querystring":20}],39:[function(require,module,exports){
+},{"./util":33,"punycode":15,"querystring":18}],33:[function(require,module,exports){
 'use strict';
 
 module.exports = {
@@ -7842,7 +6593,78 @@ module.exports = {
   }
 };
 
-},{}],40:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
+(function (global){
+
+/**
+ * Module exports.
+ */
+
+module.exports = deprecate;
+
+/**
+ * Mark that a method should not be used.
+ * Returns a modified function which warns once by default.
+ *
+ * If `localStorage.noDeprecation = true` is set, then it is a no-op.
+ *
+ * If `localStorage.throwDeprecation = true` is set, then deprecated functions
+ * will throw an Error when invoked.
+ *
+ * If `localStorage.traceDeprecation = true` is set, then deprecated functions
+ * will invoke `console.trace()` instead of `console.error()`.
+ *
+ * @param {Function} fn - the function to deprecate
+ * @param {String} msg - the string to print to the console when `fn` is invoked
+ * @returns {Function} a new "deprecated" version of `fn`
+ * @api public
+ */
+
+function deprecate (fn, msg) {
+  if (config('noDeprecation')) {
+    return fn;
+  }
+
+  var warned = false;
+  function deprecated() {
+    if (!warned) {
+      if (config('throwDeprecation')) {
+        throw new Error(msg);
+      } else if (config('traceDeprecation')) {
+        console.trace(msg);
+      } else {
+        console.warn(msg);
+      }
+      warned = true;
+    }
+    return fn.apply(this, arguments);
+  }
+
+  return deprecated;
+}
+
+/**
+ * Checks `localStorage` for boolean values for the given `name`.
+ *
+ * @param {String} name
+ * @returns {Boolean}
+ * @api private
+ */
+
+function config (name) {
+  // accessing global.localStorage can trigger a DOMException in sandboxed iframes
+  try {
+    if (!global.localStorage) return false;
+  } catch (_) {
+    return false;
+  }
+  var val = global.localStorage[name];
+  if (null == val) return false;
+  return String(val).toLowerCase() === 'true';
+}
+
+}).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
+},{}],35:[function(require,module,exports){
 module.exports = extend
 
 var hasOwnProperty = Object.prototype.hasOwnProperty;
@@ -7863,4 +6685,1182 @@ function extend() {
     return target
 }
 
-},{}]},{},[2]);
+},{}],36:[function(require,module,exports){
+(function (process,Buffer){
+/**
+ * Wrapper for built-in http.js to emulate the browser XMLHttpRequest object.
+ *
+ * This can be used with JS designed for browsers to improve reuse of code and
+ * allow the use of existing libraries.
+ *
+ * Usage: include("XMLHttpRequest.js") and use XMLHttpRequest per W3C specs.
+ *
+ * @author Dan DeFelippi <dan@driverdan.com>
+ * @contributor David Ellis <d.f.ellis@ieee.org>
+ * @license MIT
+ */
+
+var Url = require("url");
+var spawn = require("child_process").spawn;
+var fs = require("fs");
+
+exports.XMLHttpRequest = function() {
+  "use strict";
+
+  /**
+   * Private variables
+   */
+  var self = this;
+  var http = require("http");
+  var https = require("https");
+
+  // Holds http.js objects
+  var request;
+  var response;
+
+  // Request settings
+  var settings = {};
+
+  // Disable header blacklist.
+  // Not part of XHR specs.
+  var disableHeaderCheck = false;
+
+  // Set some default headers
+  var defaultHeaders = {
+    "User-Agent": "node-XMLHttpRequest",
+    "Accept": "*/*",
+  };
+
+  var headers = {};
+  var headersCase = {};
+
+  // These headers are not user setable.
+  // The following are allowed but banned in the spec:
+  // * user-agent
+  var forbiddenRequestHeaders = [
+    "accept-charset",
+    "accept-encoding",
+    "access-control-request-headers",
+    "access-control-request-method",
+    "connection",
+    "content-length",
+    "content-transfer-encoding",
+    "cookie",
+    "cookie2",
+    "date",
+    "expect",
+    "host",
+    "keep-alive",
+    "origin",
+    "referer",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "via"
+  ];
+
+  // These request methods are not allowed
+  var forbiddenRequestMethods = [
+    "TRACE",
+    "TRACK",
+    "CONNECT"
+  ];
+
+  // Send flag
+  var sendFlag = false;
+  // Error flag, used when errors occur or abort is called
+  var errorFlag = false;
+
+  // Event listeners
+  var listeners = {};
+
+  /**
+   * Constants
+   */
+
+  this.UNSENT = 0;
+  this.OPENED = 1;
+  this.HEADERS_RECEIVED = 2;
+  this.LOADING = 3;
+  this.DONE = 4;
+
+  /**
+   * Public vars
+   */
+
+  // Current state
+  this.readyState = this.UNSENT;
+
+  // default ready state change handler in case one is not set or is set late
+  this.onreadystatechange = null;
+
+  // Result & response
+  this.responseText = "";
+  this.responseXML = "";
+  this.status = null;
+  this.statusText = null;
+  
+  // Whether cross-site Access-Control requests should be made using
+  // credentials such as cookies or authorization headers
+  this.withCredentials = false;
+
+  /**
+   * Private methods
+   */
+
+  /**
+   * Check if the specified header is allowed.
+   *
+   * @param string header Header to validate
+   * @return boolean False if not allowed, otherwise true
+   */
+  var isAllowedHttpHeader = function(header) {
+    return disableHeaderCheck || (header && forbiddenRequestHeaders.indexOf(header.toLowerCase()) === -1);
+  };
+
+  /**
+   * Check if the specified method is allowed.
+   *
+   * @param string method Request method to validate
+   * @return boolean False if not allowed, otherwise true
+   */
+  var isAllowedHttpMethod = function(method) {
+    return (method && forbiddenRequestMethods.indexOf(method) === -1);
+  };
+
+  /**
+   * Public methods
+   */
+
+  /**
+   * Open the connection. Currently supports local server requests.
+   *
+   * @param string method Connection method (eg GET, POST)
+   * @param string url URL for the connection.
+   * @param boolean async Asynchronous connection. Default is true.
+   * @param string user Username for basic authentication (optional)
+   * @param string password Password for basic authentication (optional)
+   */
+  this.open = function(method, url, async, user, password) {
+    this.abort();
+    errorFlag = false;
+
+    // Check for valid request method
+    if (!isAllowedHttpMethod(method)) {
+      throw new Error("SecurityError: Request method not allowed");
+    }
+
+    settings = {
+      "method": method,
+      "url": url.toString(),
+      "async": (typeof async !== "boolean" ? true : async),
+      "user": user || null,
+      "password": password || null
+    };
+
+    setState(this.OPENED);
+  };
+
+  /**
+   * Disables or enables isAllowedHttpHeader() check the request. Enabled by default.
+   * This does not conform to the W3C spec.
+   *
+   * @param boolean state Enable or disable header checking.
+   */
+  this.setDisableHeaderCheck = function(state) {
+    disableHeaderCheck = state;
+  };
+
+  /**
+   * Sets a header for the request or appends the value if one is already set.
+   *
+   * @param string header Header name
+   * @param string value Header value
+   */
+  this.setRequestHeader = function(header, value) {
+    if (this.readyState !== this.OPENED) {
+      throw new Error("INVALID_STATE_ERR: setRequestHeader can only be called when state is OPEN");
+    }
+    if (!isAllowedHttpHeader(header)) {
+      console.warn("Refused to set unsafe header \"" + header + "\"");
+      return;
+    }
+    if (sendFlag) {
+      throw new Error("INVALID_STATE_ERR: send flag is true");
+    }
+    header = headersCase[header.toLowerCase()] || header;
+    headersCase[header.toLowerCase()] = header;
+    headers[header] = headers[header] ? headers[header] + ', ' + value : value;
+  };
+
+  /**
+   * Gets a header from the server response.
+   *
+   * @param string header Name of header to get.
+   * @return string Text of the header or null if it doesn't exist.
+   */
+  this.getResponseHeader = function(header) {
+    if (typeof header === "string"
+      && this.readyState > this.OPENED
+      && response
+      && response.headers
+      && response.headers[header.toLowerCase()]
+      && !errorFlag
+    ) {
+      return response.headers[header.toLowerCase()];
+    }
+
+    return null;
+  };
+
+  /**
+   * Gets all the response headers.
+   *
+   * @return string A string with all response headers separated by CR+LF
+   */
+  this.getAllResponseHeaders = function() {
+    if (this.readyState < this.HEADERS_RECEIVED || errorFlag) {
+      return "";
+    }
+    var result = "";
+
+    for (var i in response.headers) {
+      // Cookie headers are excluded
+      if (i !== "set-cookie" && i !== "set-cookie2") {
+        result += i + ": " + response.headers[i] + "\r\n";
+      }
+    }
+    return result.substr(0, result.length - 2);
+  };
+
+  /**
+   * Gets a request header
+   *
+   * @param string name Name of header to get
+   * @return string Returns the request header or empty string if not set
+   */
+  this.getRequestHeader = function(name) {
+    if (typeof name === "string" && headersCase[name.toLowerCase()]) {
+      return headers[headersCase[name.toLowerCase()]];
+    }
+
+    return "";
+  };
+
+  /**
+   * Sends the request to the server.
+   *
+   * @param string data Optional data to send as request body.
+   */
+  this.send = function(data) {
+    if (this.readyState !== this.OPENED) {
+      throw new Error("INVALID_STATE_ERR: connection must be opened before send() is called");
+    }
+
+    if (sendFlag) {
+      throw new Error("INVALID_STATE_ERR: send has already been called");
+    }
+
+    var ssl = false, local = false;
+    var url = Url.parse(settings.url);
+    var host;
+    // Determine the server
+    switch (url.protocol) {
+      case "https:":
+        ssl = true;
+        // SSL & non-SSL both need host, no break here.
+      case "http:":
+        host = url.hostname;
+        break;
+
+      case "file:":
+        local = true;
+        break;
+
+      case undefined:
+      case null:
+      case "":
+        host = "localhost";
+        break;
+
+      default:
+        throw new Error("Protocol not supported.");
+    }
+
+    // Load files off the local filesystem (file://)
+    if (local) {
+      if (settings.method !== "GET") {
+        throw new Error("XMLHttpRequest: Only GET method is supported");
+      }
+
+      if (settings.async) {
+        fs.readFile(url.pathname, "utf8", function(error, data) {
+          if (error) {
+            self.handleError(error);
+          } else {
+            self.status = 200;
+            self.responseText = data;
+            setState(self.DONE);
+          }
+        });
+      } else {
+        try {
+          this.responseText = fs.readFileSync(url.pathname, "utf8");
+          this.status = 200;
+          setState(self.DONE);
+        } catch(e) {
+          this.handleError(e);
+        }
+      }
+
+      return;
+    }
+
+    // Default to port 80. If accessing localhost on another port be sure
+    // to use http://localhost:port/path
+    var port = url.port || (ssl ? 443 : 80);
+    // Add query string if one is used
+    var uri = url.pathname + (url.search ? url.search : "");
+
+    // Set the defaults if they haven't been set
+    for (var name in defaultHeaders) {
+      if (!headersCase[name.toLowerCase()]) {
+        headers[name] = defaultHeaders[name];
+      }
+    }
+
+    // Set the Host header or the server may reject the request
+    headers.Host = host;
+    if (!((ssl && port === 443) || port === 80)) {
+      headers.Host += ":" + url.port;
+    }
+
+    // Set Basic Auth if necessary
+    if (settings.user) {
+      if (typeof settings.password === "undefined") {
+        settings.password = "";
+      }
+      var authBuf = new Buffer(settings.user + ":" + settings.password);
+      headers.Authorization = "Basic " + authBuf.toString("base64");
+    }
+
+    // Set content length header
+    if (settings.method === "GET" || settings.method === "HEAD") {
+      data = null;
+    } else if (data) {
+      headers["Content-Length"] = Buffer.isBuffer(data) ? data.length : Buffer.byteLength(data);
+
+      if (!headers["Content-Type"]) {
+        headers["Content-Type"] = "text/plain;charset=UTF-8";
+      }
+    } else if (settings.method === "POST") {
+      // For a post with no data set Content-Length: 0.
+      // This is required by buggy servers that don't meet the specs.
+      headers["Content-Length"] = 0;
+    }
+
+    var options = {
+      host: host,
+      port: port,
+      path: uri,
+      method: settings.method,
+      headers: headers,
+      agent: false,
+      withCredentials: self.withCredentials
+    };
+
+    // Reset error flag
+    errorFlag = false;
+
+    // Handle async requests
+    if (settings.async) {
+      // Use the proper protocol
+      var doRequest = ssl ? https.request : http.request;
+
+      // Request is being sent, set send flag
+      sendFlag = true;
+
+      // As per spec, this is called here for historical reasons.
+      self.dispatchEvent("readystatechange");
+
+      // Handler for the response
+      var responseHandler = function responseHandler(resp) {
+        // Set response var to the response we got back
+        // This is so it remains accessable outside this scope
+        response = resp;
+        // Check for redirect
+        // @TODO Prevent looped redirects
+        if (response.statusCode === 301 || response.statusCode === 302 || response.statusCode === 303 || response.statusCode === 307) {
+          // Change URL to the redirect location
+          settings.url = response.headers.location;
+          var url = Url.parse(settings.url);
+          // Set host var in case it's used later
+          host = url.hostname;
+          // Options for the new request
+          var newOptions = {
+            hostname: url.hostname,
+            port: url.port,
+            path: url.path,
+            method: response.statusCode === 303 ? "GET" : settings.method,
+            headers: headers,
+            withCredentials: self.withCredentials
+          };
+
+          // Issue the new request
+          request = doRequest(newOptions, responseHandler).on("error", errorHandler);
+          request.end();
+          // @TODO Check if an XHR event needs to be fired here
+          return;
+        }
+
+        response.setEncoding("utf8");
+
+        setState(self.HEADERS_RECEIVED);
+        self.status = response.statusCode;
+
+        response.on("data", function(chunk) {
+          // Make sure there's some data
+          if (chunk) {
+            self.responseText += chunk;
+          }
+          // Don't emit state changes if the connection has been aborted.
+          if (sendFlag) {
+            setState(self.LOADING);
+          }
+        });
+
+        response.on("end", function() {
+          if (sendFlag) {
+            // Discard the end event if the connection has been aborted
+            setState(self.DONE);
+            sendFlag = false;
+          }
+        });
+
+        response.on("error", function(error) {
+          self.handleError(error);
+        });
+      };
+
+      // Error handler for the request
+      var errorHandler = function errorHandler(error) {
+        self.handleError(error);
+      };
+
+      // Create the request
+      request = doRequest(options, responseHandler).on("error", errorHandler);
+
+      // Node 0.4 and later won't accept empty data. Make sure it's needed.
+      if (data) {
+        request.write(data);
+      }
+
+      request.end();
+
+      self.dispatchEvent("loadstart");
+    } else { // Synchronous
+      // Create a temporary file for communication with the other Node process
+      var contentFile = ".node-xmlhttprequest-content-" + process.pid;
+      var syncFile = ".node-xmlhttprequest-sync-" + process.pid;
+      fs.writeFileSync(syncFile, "", "utf8");
+      // The async request the other Node process executes
+      var execString = "var http = require('http'), https = require('https'), fs = require('fs');"
+        + "var doRequest = http" + (ssl ? "s" : "") + ".request;"
+        + "var options = " + JSON.stringify(options) + ";"
+        + "var responseText = '';"
+        + "var req = doRequest(options, function(response) {"
+        + "response.setEncoding('utf8');"
+        + "response.on('data', function(chunk) {"
+        + "  responseText += chunk;"
+        + "});"
+        + "response.on('end', function() {"
+        + "fs.writeFileSync('" + contentFile + "', JSON.stringify({err: null, data: {statusCode: response.statusCode, headers: response.headers, text: responseText}}), 'utf8');"
+        + "fs.unlinkSync('" + syncFile + "');"
+        + "});"
+        + "response.on('error', function(error) {"
+        + "fs.writeFileSync('" + contentFile + "', JSON.stringify({err: error}), 'utf8');"
+        + "fs.unlinkSync('" + syncFile + "');"
+        + "});"
+        + "}).on('error', function(error) {"
+        + "fs.writeFileSync('" + contentFile + "', JSON.stringify({err: error}), 'utf8');"
+        + "fs.unlinkSync('" + syncFile + "');"
+        + "});"
+        + (data ? "req.write('" + JSON.stringify(data).slice(1,-1).replace(/'/g, "\\'") + "');":"")
+        + "req.end();";
+      // Start the other Node Process, executing this string
+      var syncProc = spawn(process.argv[0], ["-e", execString]);
+      while(fs.existsSync(syncFile)) {
+        // Wait while the sync file is empty
+      }
+      var resp = JSON.parse(fs.readFileSync(contentFile, 'utf8'));
+      // Kill the child process once the file has data
+      syncProc.stdin.end();
+      // Remove the temporary file
+      fs.unlinkSync(contentFile);
+
+      if (resp.err) {
+        self.handleError(resp.err);
+      } else {
+        response = resp.data;
+        self.status = resp.data.statusCode;
+        self.responseText = resp.data.text;
+        setState(self.DONE);
+      }
+    }
+  };
+
+  /**
+   * Called when an error is encountered to deal with it.
+   */
+  this.handleError = function(error) {
+    this.status = 0;
+    this.statusText = error;
+    this.responseText = error.stack;
+    errorFlag = true;
+    setState(this.DONE);
+    this.dispatchEvent('error');
+  };
+
+  /**
+   * Aborts a request.
+   */
+  this.abort = function() {
+    if (request) {
+      request.abort();
+      request = null;
+    }
+
+    headers = defaultHeaders;
+    this.status = 0;
+    this.responseText = "";
+    this.responseXML = "";
+
+    errorFlag = true;
+
+    if (this.readyState !== this.UNSENT
+        && (this.readyState !== this.OPENED || sendFlag)
+        && this.readyState !== this.DONE) {
+      sendFlag = false;
+      setState(this.DONE);
+    }
+    this.readyState = this.UNSENT;
+    this.dispatchEvent('abort');
+  };
+
+  /**
+   * Adds an event listener. Preferred method of binding to events.
+   */
+  this.addEventListener = function(event, callback) {
+    if (!(event in listeners)) {
+      listeners[event] = [];
+    }
+    // Currently allows duplicate callbacks. Should it?
+    listeners[event].push(callback);
+  };
+
+  /**
+   * Remove an event callback that has already been bound.
+   * Only works on the matching funciton, cannot be a copy.
+   */
+  this.removeEventListener = function(event, callback) {
+    if (event in listeners) {
+      // Filter will return a new array with the callback removed
+      listeners[event] = listeners[event].filter(function(ev) {
+        return ev !== callback;
+      });
+    }
+  };
+
+  /**
+   * Dispatch any events, including both "on" methods and events attached using addEventListener.
+   */
+  this.dispatchEvent = function(event) {
+    if (typeof self["on" + event] === "function") {
+      self["on" + event]();
+    }
+    if (event in listeners) {
+      for (var i = 0, len = listeners[event].length; i < len; i++) {
+        listeners[event][i].call(self);
+      }
+    }
+  };
+
+  /**
+   * Changes readyState and calls onreadystatechange.
+   *
+   * @param int state New state
+   */
+  var setState = function(state) {
+    if (state == self.LOADING || self.readyState !== state) {
+      self.readyState = state;
+
+      if (settings.async || self.readyState < self.OPENED || self.readyState === self.DONE) {
+        self.dispatchEvent("readystatechange");
+      }
+
+      if (self.readyState === self.DONE && !errorFlag) {
+        self.dispatchEvent("load");
+        // @TODO figure out InspectorInstrumentation::didLoadXHR(cookie)
+        self.dispatchEvent("loadend");
+      }
+    }
+  };
+};
+
+}).call(this,require('_process'),require("buffer").Buffer)
+},{"_process":14,"buffer":4,"child_process":1,"fs":1,"http":26,"https":9,"url":32}],37:[function(require,module,exports){
+//# sourceURL=application.js
+
+/*
+Version 2
+Copyright (C) 2016 Apple Inc. All Rights Reserved.
+See LICENSE.txt for this sample’s licensing information
+
+Abstract:
+This is the entry point to the application and handles the initial loading of required JavaScript files.
+*/
+
+
+/**
+ * @description The onLaunch callback is invoked after the application JavaScript 
+ * has been parsed into a JavaScript context. The handler is passed an object 
+ * that contains options passed in for launch. These options are defined in the
+ * swift or objective-c client code. Options can be used to communicate to
+ * your JavaScript code that data and as well as state information, like if the 
+ * the app is being launched in the background.
+ *
+ * The location attribute is automatically added to the object and represents 
+ * the URL that was used to retrieve the application JavaScript.
+ */
+
+var Feedly = require('./feedly.js')
+var Presenter = require('./Presenter.js')
+var Templater = require('./templater.js')
+
+
+function createNews() {
+    Feedly.getAllNews(function (news) {
+        var docJson = Templater.createDoc(JSON.parse(news))
+        var doc = Presenter.makeDocument(docJson);
+        navigationDocument.pushDocument(doc);
+    })
+}
+App.onLaunch = function(options) {
+    createNews()
+}
+
+App.onResume = function(options) {
+    console.log("resume called")
+    createNews()
+}
+
+
+},{"./Presenter.js":38,"./feedly.js":39,"./templater.js":40}],38:[function(require,module,exports){
+/*
+Copyright (C) 2016 Apple Inc. All Rights Reserved.
+See LICENSE.txt for this sample’s licensing information
+
+Abstract:
+Templates can be displayed to the user via three primary means:
+- pushing a document on the stack
+- associating a document with a menu bar item
+- presenting a modal
+This class shows examples for each one.
+*/
+
+var Presenter = {
+
+    /**
+     * @description This function demonstrate the default way of present a document. 
+     * The document can be presented on screen by adding to to the documents array
+     * of the navigationDocument. The navigationDocument allows you to manipulate
+     * the documents array with the pushDocument, popDocument, replaceDocument, and
+     * removeDocument functions. 
+     *
+     * You can replace an existing document in the navigationDocumetn array by calling 
+     * the replaceDocument function of navigationDocument. replaceDocument requires two
+     * arguments: the new document, the old document.
+     * @param {Document} xml - The XML document to push on the stack
+     */
+    defaultPresenter: function(xml) {
+
+        /*
+        If a loading indicator is visible, we replace it with our document, otherwise 
+        we push the document on the stack
+        */
+        if(this.loadingIndicatorVisible) {
+            navigationDocument.replaceDocument(xml, this.loadingIndicator);
+            this.loadingIndicatorVisible = false;
+        } else {
+            navigationDocument.pushDocument(xml);
+        }
+    },
+
+    /**
+     * @description Extends the default presenter functionality and registers
+     * the onTextChange handler to allow for a search implementation
+     * @param {Document} xml - The XML document to push on the stack
+     */
+    searchPresenter: function(xml) {
+
+        this.defaultPresenter.call(this, xml);
+        var doc = xml;
+
+        var searchField = doc.getElementsByTagName("searchField").item(0);
+        var keyboard = searchField.getFeature("Keyboard");
+
+        keyboard.onTextChange = function() {
+            var searchText = keyboard.text;
+            console.log('search text changed: ' + searchText);
+            buildResults(doc, searchText);
+        }
+    },    
+
+    /**
+     * @description This function demonstrates the presentation of documents as modals.
+     * You can present and manage a document in a modal view by using the pushModal() and
+     * removeModal() functions. Only a single document may be presented as a modal at
+     * any given time. Documents presented in the modal view are presented in fullscreen
+     * with a semi-transparent background that blurs the document below it.
+     *
+     * @param {Document} xml - The XML document to present as modal
+     */
+    modalDialogPresenter: function(xml) {
+        navigationDocument.presentModal(xml);
+    },
+
+    /**
+     * @description This function demonstrates how to present documents within a menu bar.
+     * Each item in the menu bar can have a single document associated with it. To associate
+     * document to you an item you use the MenuBarDocument feature.
+     *
+     * Menu bar elements have a MenuBarDocument feature that stores the document associated
+     * with a menu bar element. In JavaScript you access the MenuBarDocument by invoking the 
+     * getFeature function on the menuBar element. 
+     *
+     * A feature in TVMLKit is a construct for attaching extended capabilities to an
+     * element. See the TVMLKit documentation for information on elements with available
+     * features.
+     *
+     * @param {Document} xml - The XML document to associate with a menu bar element
+     * @param {Element} ele - The currently selected item element
+     */
+    menuBarItemPresenter: function(xml, ele) {
+        /*
+        To get the menu bar's 'MenuBarDocument' feature, we move up the DOM Node tree using
+        the parentNode property. This allows us to access the the menuBar element from the 
+        current item element.
+        */
+        var feature = ele.parentNode.getFeature("MenuBarDocument");
+
+        if (feature) {
+            /*
+            To retrieve the document associated with the menu bar element, if one has been 
+            set, you call the getDocument function the MenuBarDocument feature. The function
+            takes one argument, the item element.
+            */
+            var currentDoc = feature.getDocument(ele);
+            /*
+            To present a document within the menu bar, you need to associate it with the 
+            menu bar item. This is accomplished by call the setDocument function on MenuBarDocument
+            feature. The function takes two argument, the document to be presented and item it 
+            should be associated with.
+
+            In this implementation we are only associating a document once per menu bar item. You can 
+            associate a document each time the item is selected, or you can associate documents with 
+            all the menu bar items before the menu bar is presented. You will need to experimet here
+            to balance document presentation times with updating the document items.
+            */
+            if (!currentDoc) {
+                feature.setDocument(xml, ele);
+            }
+        }
+    },
+
+    /**
+     * @description This function handles the select event and invokes the appropriate presentation method.
+     * This is only one way to implent a system for presenting documents. You should determine
+     * the best system for your application and data model.
+     *
+     * @param {Event} event - The select event
+     */
+    load: function(event) {
+        console.log(event);
+
+        var self = this,
+            ele = event.target,
+            templateURL = ele.getAttribute("template"),
+            presentation = ele.getAttribute("presentation");
+
+        /*
+        Check if the selected element has a 'template' attribute. If it does then we begin
+        the process to present the template to the user.
+        */
+        if (templateURL) {
+            /*
+            Whenever a user action is taken you need to visually indicate to the user that
+            you are processing their action. When a users action indicates that a new document
+            should be presented you should first present a loadingIndicator. This will provide
+            the user feedback if the app is taking a long time loading the data or the next 
+            document.
+            */
+            self.showLoadingIndicator(presentation);
+
+            /* 
+            Here we are retrieving the template listed in the templateURL property.
+            */
+            resourceLoader.loadResource(templateURL,
+                function(resource) {
+                    if (resource) {
+                        /*
+                        The XML template must be turned into a DOMDocument in order to be 
+                        presented to the user. See the implementation of makeDocument below.
+                        */
+                        var doc = self.makeDocument(resource);
+                        
+                        /*
+                        Event listeners are used to handle and process user actions or events. Listeners
+                        can be added to the document or to each element. Events are bubbled up through the
+                        DOM heirarchy and can be handled or cancelled at at any point.
+
+                        Listeners can be added before or after the document has been presented.
+
+                        For a complete list of available events, see the TVMLKit DOM Documentation.
+                        */
+                        doc.addEventListener("select", self.load.bind(self));
+                        doc.addEventListener("highlight", self.load.bind(self));
+
+
+                        /*
+                        This is a convenience implementation for choosing the appropriate method to 
+                        present the document. 
+                        */
+                        if (self[presentation] instanceof Function) {
+                            self[presentation].call(self, doc, ele);
+                        } else {
+                            self.defaultPresenter.call(self, doc);
+                        }
+                    }
+                }
+            );
+        }
+    },
+
+    /**
+     * @description This function creates a XML document from the contents of a template file.
+     * In this example we are utilizing the DOMParser to transform the Index template from a 
+     * string representation into a DOMDocument.
+     *
+     * @param {String} resource - The contents of the template file
+     * @return {Document} - XML Document
+     */
+    makeDocument: function(resource) {
+        if (!Presenter.parser) {
+            Presenter.parser = new DOMParser();
+        }
+
+        var doc = Presenter.parser.parseFromString(resource, "application/xml");
+        return doc;
+    },
+
+    /**
+     * @description This function handles the display of loading indicators.
+     *
+     * @param {String} presentation - The presentation function name
+     */
+    showLoadingIndicator: function(presentation) {
+        /*
+        You can reuse documents that have previously been created. In this implementation
+        we check to see if a loadingIndicator document has already been created. If it 
+        hasn't then we create one.
+        */
+        if (!this.loadingIndicator) {
+            this.loadingIndicator = this.makeDocument(this.loadingTemplate);
+        }
+        
+        /* 
+        Only show the indicator if one isn't already visible and we aren't presenting a modal.
+        */
+        if (!this.loadingIndicatorVisible && presentation != "modalDialogPresenter" && presentation != "menuBarItemPresenter") {
+            navigationDocument.pushDocument(this.loadingIndicator);
+            this.loadingIndicatorVisible = true;
+        }
+    },
+
+    /**
+     * @description This function handles the removal of loading indicators.
+     * If a loading indicator is visible, it removes it from the stack and sets the loadingIndicatorVisible attribute to false.
+     */
+    removeLoadingIndicator: function() {
+        if (this.loadingIndicatorVisible) {
+            navigationDocument.removeDocument(this.loadingIndicator);
+            this.loadingIndicatorVisible = false;
+        }
+    },
+
+    /**
+     * @description Instead of a loading a template from the server, it can stored in a property 
+     * or variable for convenience. This is generally employed for templates that can be reused and
+     * aren't going to change often, like a loadingIndicator.
+     */
+    loadingTemplate: `<?xml version="1.0" encoding="UTF-8" ?>
+        <document>
+          <loadingTemplate>
+            <activityIndicator>
+              <text>Loading...</text>
+            </activityIndicator>
+          </loadingTemplate>
+        </document>`
+}
+
+
+module.exports = Presenter
+},{}],39:[function(require,module,exports){
+/**
+ * Module that handles calls to feedly
+ *
+ * Created by cha on 4/2/2016.
+ */
+
+var XMLHttpRequest = require("xmlhttprequest").XMLHttpRequest;
+var Feedly = {
+    feedcache: {
+        lastUpdate:undefined
+    },
+    maxAge: 1000 * 60 * 5,
+    maxNews: 100,
+    maxProviders:10,
+
+    urlCache: {
+
+    },
+
+    request: function (url, callback) {
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.onreadystatechange = function () {
+            if (xmlhttp.readyState == 4){
+                if(xmlhttp.status = 200){
+                    callback(xmlhttp.responseText);
+                }else{
+                    console.log("failed request " + url)
+                }
+            }
+        };
+        xmlhttp.open("GET", url, true);
+        xmlhttp.send();
+    },
+
+    getProviders: function (callback) {
+
+        this.request('https://cloud.feedly.com/v3/search/feeds?query=nyheder&locale=da_DK&count='+this.maxProviders, function (body) {
+            callback(parse(body))
+        });
+
+        function parse(body) {
+            var providers = [];
+            var response = JSON.parse(body);
+            var results = response.results;
+            results.forEach(function (result) {
+                var provider = {};
+                provider.feedId = result.feedId;
+                provider.name = result.website;
+                if (provider.name == null) {
+                    provider.name = result.title
+                }
+                provider.iconUrl = result.iconUrl;
+                providers.push(provider)
+            });
+            return providers
+        }
+    },
+
+    parseEntries: function (provider, result) {
+        function stripHtml(html){
+            return html.replace(/<(?:.|\n)*?>/gm, '');
+        }
+        var parsed = JSON.parse(result);
+        var entries = [];
+        if (parsed.items) {
+            parsed.items.forEach(function (item) {
+                var newsItem = {};
+                newsItem.title = item.title;
+                if (item.summary){
+                    var wrapped = "<![CDATA["+item.summary.content+"]]>";
+                    var strippedContent = stripHtml(item.summary.content);
+                    newsItem.summary = strippedContent
+                }
+                newsItem.content = item.content;
+                if (item.visual && item.visual.url){
+                    newsItem.visual = item.visual.url;
+                }
+
+
+                newsItem.published = new Date(item.published).toDateString();
+                newsItem.timeStamp = item.published;
+                newsItem.provider = provider.name;
+                if (newsItem.visual  && newsItem.visual.length > 10) {
+                    if(newsItem.summary && newsItem.summary.length > 10)
+                        entries.push(newsItem)
+
+                }
+            });
+        }
+        return entries
+    },
+
+    getProviderNews: function (provider, newerThan, callback) {
+        var self = this
+        var feedid = provider.feedId;
+        if (newerThan != null) {
+            this.request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count='+this.maxNews+'&newerThan=' + newerThan, handleResult)
+        } else {
+            this.request('https://cloud.feedly.com/v3/streams/contents?streamId=' + feedid + '&count='+this.maxNews, handleResult)
+        }
+
+        function handleResult(result) {
+            var entries = self.parseEntries(provider, result);
+
+            callback(entries)
+        }
+
+    },
+
+    getSomeNews: function (antal,callBack) {
+        var self = this
+        var items
+        // only call for new news every maxAge minutes or first time
+
+        function isToOld() {
+            return self.feedcache.lastUpdate != null && Date.now() - self.feedcache.lastUpdate > this.maxAge;
+        }
+
+        function firstTime() {
+            if(!self.feedcache.lastUpdate){
+                return true
+            }else{
+                return false
+            }
+        }
+
+        if (true ||firstTime() ||  isToOld() ) {
+            this.getAllNewsFrom(null, function (list) {
+                list.sort(function(a,b){
+                    return b.timeStamp - a.timeStamp;
+                })
+                self.feedcache.lastUpdate = Date.now
+                self.feedcache.data = list;
+                if(antal){
+                    callBack(list.slice(0,antal));
+                }else{
+                    callBack(list);
+                }
+
+            })
+        } else {
+            callBack(self.feedcache.data)
+        }
+
+
+    },
+    getAllNews: function(callback){
+        var self = this
+      return self.getSomeNews(100,callback);
+    },
+    getAllNewsFrom: function (newerThan, callback) {
+        var self = this
+        this.getProviders(function (result) {
+            var allList = [];
+            var providers = result
+            var count = providers.length;
+
+            providers.forEach(function (provider) {
+                self.getProviderNews(provider, newerThan, function (list) {
+                    count = count - 1;
+                    if (list.length > 0) {
+                        allList.push.apply(allList, list);
+                    }
+                    if (count == 0) {
+                        callback(allList)
+                    }
+                })
+            })
+
+        })
+
+    }
+}
+
+
+
+
+module.exports = Feedly
+},{"xmlhttprequest":36}],40:[function(require,module,exports){
+// version 2
+
+String.prototype.replaceAll = function(search, replace) {
+    if (replace === undefined) {
+        return this.toString();
+    }
+    return this.split(search).join(replace);
+}
+
+
+var Templater = {
+    createDoc : function(data){
+        var self = this
+        var lockups = ""
+
+        data.forEach(function(item){
+            var lockup = self.construct(item.visual,item.title,item.summary,item.provider,item.published)
+            lockups = lockups+lockup
+        })
+        var doc = this.fullDoc(lockups)
+        return this.encode(doc)
+    },
+
+    construct : function(image,title,summary,provider,published){
+        var itemXML =
+            `<lockup>
+                <img src="${image}" width="1220" />
+                <title>${title}</title>
+                <description allowsZooming="true">${summary} - ${provider} - ${published}</description>
+             </lockup>`
+        return itemXML
+    },
+
+    fullDoc : function(lockups,provider) { return `<?xml version="1.0" encoding="UTF-8" ?>
+        <document>
+           <showcaseTemplate>
+              <background>
+              <img src="http://www.bodiehodgesfoundation.co.uk/wp-content/uploads/2013/05/new-black-silver-grey-background-wallpaper-desktop-background.jpg"/>
+              </background>
+              <banner>
+                 <title>Danske Nyheder</title>
+              </banner>
+              <carousel>
+                 <section>
+                    ${lockups}
+                 </section>
+              </carousel>
+           </showcaseTemplate>
+        </document>`
+    },
+    
+    encode : function(doc) {
+        function removeAmp(result) {
+            return result.replaceAll("&","&amp;")
+        }
+        var encodedDoc = removeAmp(doc)
+        return encodedDoc
+    }
+    
+    
+}
+    
+
+
+module.exports = Templater
+
+
+},{}]},{},[37]);
