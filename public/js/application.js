@@ -7344,7 +7344,6 @@ function createNews() {
     Feedly.getAllNews(function (news) {
         var docJson = Templater.createDoc(news)
         contentDoc = Presenter.makeDocument(docJson);
-        navigationDocument.clear();
         navigationDocument.pushDocument(contentDoc);
     })
 }
@@ -7359,7 +7358,7 @@ function updateNews() {
 
 App.onLaunch = function(options) {
     var ldoc = Presenter.makeDocument(loadingDoc);
-    navigationDocument.pushDocument(doc);
+    navigationDocument.pushDocument(ldoc);
     createNews()
 }
 
