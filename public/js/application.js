@@ -7337,22 +7337,35 @@ This is the entry point to the application and handles the initial loading of re
 var Feedly = require('./feedly.js')
 var Presenter = require('./Presenter.js')
 var Templater = require('./templater.js')
-
+var loadingDoc = "<document><loadingTemplate><activityIndicator><title>Henter dagens nyheder</title></activityIndicator></loadingTemplate></document>";
+var contentDoc;
 
 function createNews() {
     Feedly.getAllNews(function (news) {
         var docJson = Templater.createDoc(news)
-        var doc = Presenter.makeDocument(docJson);
-        navigationDocument.pushDocument(doc);
+        contentDoc = Presenter.makeDocument(docJson);
+        navigationDocument.clear();
+        navigationDocument.pushDocument(contentDoc);
     })
 }
+function updateNews() {
+    Feedly.getAllNews(function (news) {
+        var docJson = Templater.createDoc(news)
+        var newdoc = Presenter.makeDocument(docJson);
+        navigationDocument.replaceDocument (contentDoc,newdoc);
+        contentDoc = newdoc;
+    })
+}
+
 App.onLaunch = function(options) {
+    var ldoc = Presenter.makeDocument(loadingDoc);
+    navigationDocument.pushDocument(doc);
     createNews()
 }
 
 App.onResume = function(options) {
     console.log("resume called")
-    createNews()
+    updateNews()
 }
 
 
