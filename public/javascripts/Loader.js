@@ -25,14 +25,15 @@ This is the entry point to the application and handles the initial loading of re
 var Feedly = require('./feedly.js')
 var Presenter = require('./Presenter.js')
 var Templater = require('./templater.js')
-var loadingDoc = "<document><loadingTemplate><activityIndicator><title>Henter dagens nyheder</title></activityIndicator></loadingTemplate></document>";
+var loadingDocTmp = "<document><loadingTemplate><activityIndicator><title>Henter dagens nyheder</title></activityIndicator></loadingTemplate></document>";
 var contentDoc;
+var loadingDoc
 
 function createNews() {
     Feedly.getAllNews(function (news) {
         var docJson = Templater.createDoc(news)
         contentDoc = Presenter.makeDocument(docJson);
-        navigationDocument.pushDocument(contentDoc);
+        navigationDocument.replaceDocument(loadingDoc,contentDoc);
     })
 }
 function updateNews() {
@@ -45,8 +46,8 @@ function updateNews() {
 }
 
 App.onLaunch = function(options) {
-    var ldoc = Presenter.makeDocument(loadingDoc);
-    navigationDocument.pushDocument(ldoc);
+    loadingDoc = Presenter.makeDocument(loadingDocTmp);
+    navigationDocument.pushDocument(loadingDoc);
     createNews()
 }
 
