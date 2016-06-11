@@ -33,14 +33,14 @@ function createNews() {
     Feedly.getAllNews(function (news) {
         var docJson = Templater.createDoc(news)
         contentDoc = Presenter.makeDocument(docJson);
-        navigationDocument.replaceDocument(loadingDoc,contentDoc);
+        navigationDocument.replaceDocument(contentDoc,loadingDoc);
     })
 }
 function updateNews() {
     Feedly.getAllNews(function (news) {
         var docJson = Templater.createDoc(news)
         var newdoc = Presenter.makeDocument(docJson);
-        navigationDocument.replaceDocument (contentDoc,newdoc);
+        navigationDocument.replaceDocument (newdoc,contentDoc);
         contentDoc = newdoc;
     })
 }
