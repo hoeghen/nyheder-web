@@ -33,7 +33,7 @@ function createNews() {
     Feedly.getAllNews(function (news) {
         var docJson = Templater.createDoc(news)
         contentDoc = Presenter.makeDocument(docJson);
-        navigationDocument.replaceDocument(contentDoc,loadingDoc);
+        navigationDocument.pushDocument(contentDoc,loadingDoc);
     })
 }
 function updateNews() {
@@ -46,13 +46,7 @@ function updateNews() {
 }
 
 App.onLaunch = function(options) {
-    loadingDoc = Presenter.makeDocument(loadingDocTmp);
-    navigationDocument.pushDocument(loadingDoc);
     createNews()
 }
 
-App.onResume = function(options) {
-    console.log("resume called")
-    updateNews()
-}
 
