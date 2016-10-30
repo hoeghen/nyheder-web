@@ -49,4 +49,3 @@ App.onLaunch = function(options) {
     createNews()
 }
 
-
