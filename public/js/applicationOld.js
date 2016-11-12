@@ -7829,8 +7829,8 @@ var Templater = {
     createDoc : function(data){
         var self = this
         var lockups = ""
-
         data.forEach(function(item){
+            console.log("creating lockup for"+item.summary);
             var lockup = self.construct(item.visual,item.title,item.summary,item.provider,item.published)
             lockups = lockups+lockup
         })

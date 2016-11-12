@@ -30,22 +30,42 @@ var contentDoc;
 var loadingDoc
 
 function createNews() {
+    console.log("calling getAllNews")
     Feedly.getAllNews(function (news) {
+        console.log("all news loaded = "+news.length)
         var docJson = Templater.createDoc(news)
+        console.log("news doc created")
         contentDoc = Presenter.makeDocument(docJson);
-        navigationDocument.pushDocument(contentDoc,loadingDoc);
+        navigationDocument.replaceDocument(contentDoc,loadingDoc);
+        console.log("news doc pushed")
     })
 }
 function updateNews() {
+    console.log("updating news")
     Feedly.getAllNews(function (news) {
+        console.log("all news loaded")
         var docJson = Templater.createDoc(news)
         var newdoc = Presenter.makeDocument(docJson);
-        navigationDocument.replaceDocument (newdoc,contentDoc);
+        console.log("news doc created")
+        navigationDocument.replaceDocument (newdoc,loadingDoc);
         contentDoc = newdoc;
     })
 }
 
 App.onLaunch = function(options) {
+    loadingDoc = Presenter.makeDocument(loadingDocTmp);
+    console.log("created loading doc")
+    navigationDocument.pushDocument(loadingDoc)
+    console.log("pushed loadinf doc")
     createNews()
 }
 
+App.onResume = function(options){
+    console.log("onResume")
+    navigationDocument.clear()
+
+    loadingDoc = Presenter.makeDocument(loadingDocTmp);
+    console.log("created loading doc")
+    navigationDocument.pushDocument(loadingDoc)
+    console.log("pushed loadinf doc")
+    createNews()}

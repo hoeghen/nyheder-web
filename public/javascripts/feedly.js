@@ -5,14 +5,17 @@
  */
 
 var NodeRequester = require("xmlhttprequest").XMLHttpRequest;
+var NodeCache = require("node-cache");
+
 var Feedly = {
     feedcache: {
         lastUpdate:undefined
     },
     maxAge: 1000 * 60 * 5,
-    maxNews: 100,
+    maxNews: 30,
     maxProviders:10,
-    urlCache: [],
+    newsCache : new NodeCache({ stdTTL: 60*60*24, checkperiod: 60*5}),
+
 
     request: function (url, callback) {
         // The XmlHttpRequest is not available outside appletv context so we need this to run unit tests
@@ -84,17 +87,22 @@ var Feedly = {
                 newsItem.published = new Date(item.published).toDateString();
                 newsItem.timeStamp = item.published;
                 newsItem.provider = provider.name;
+
                 if (newsItem.visual  && newsItem.visual.length > 10) {
                     if(newsItem.summary && newsItem.summary.length > 10){
-                        if(self.urlCache.indexOf(newsItem.visual)==-1){
-                            entries.push(newsItem)
-                            self.urlCache.push(newsItem.visual)
+                        if(!self.newsCache.get(newsItem.visual)){
+                            self.newsCache.set(newsItem.visual,newsItem);
                         }
                     }
                 }
             });
         }
-        return entries
+        var keys = self.newsCache.keys();
+
+        keys.forEach(function(key){
+            entries.push(self.newsCache.get(key))
+        })
+        return entries;
     },
 
     getProviderNews: function (provider, newerThan, callback) {
@@ -114,45 +122,15 @@ var Feedly = {
     },
 
     getSomeNews: function (antal,callBack) {
-        var self = this
-        var items
-        // only call for new news every maxAge minutes or first time
-
-        function isToOld() {
-            return self.feedcache.lastUpdate != null && Date.now() - self.feedcache.lastUpdate > this.maxAge;
-        }
-
-        function firstTime() {
-            if(!self.feedcache.lastUpdate){
-                return true
-            }else{
-                return false
-            }
-        }
-
-        if (true ||firstTime() ||  isToOld() ) {
-            this.getAllNewsFrom(null, function (list) {
-                list.sort(function(a,b){
-                    return b.timeStamp - a.timeStamp;
-                })
-                self.feedcache.lastUpdate = Date.now
-                self.feedcache.data = list;
-                if(antal){
-                    callBack(list.slice(0,antal));
-                }else{
-                    callBack(list);
-                }
-
+        this.getAllNewsFrom(null, function (list) {
+            list.sort(function(a,b){
+                return b.timeStamp - a.timeStamp;
             })
-        } else {
-            callBack(self.feedcache.data)
-        }
-
-
+            callBack(list.slice(0,antal));
+        })
     },
     getAllNews: function(callback){
-        var self = this
-      return self.getSomeNews(100,callback);
+      return this.getSomeNews(10,callback);
     },
     getAllNewsFrom: function (newerThan, callback) {
         var self = this
@@ -164,11 +142,8 @@ var Feedly = {
             providers.forEach(function (provider) {
                 self.getProviderNews(provider, newerThan, function (list) {
                     count = count - 1;
-                    if (list.length > 0) {
-                        allList.push.apply(allList, list);
-                    }
                     if (count == 0) {
-                        callback(allList)
+                        callback(list)
                     }
                 })
             })

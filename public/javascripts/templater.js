@@ -14,6 +14,7 @@ var Templater = {
         var lockups = ""
 
         data.forEach(function(item){
+            console.log("create lockup = "+item.summary)
             var lockup = self.construct(item.visual,item.title,item.summary,item.provider,item.published)
             lockups = lockups+lockup
         })
