@@ -4393,7 +4393,7 @@ var Feedly = {
         })
     },
     getAllNews: function(callback){
-      return this.getSomeNews(10,callback);
+      return this.getSomeNews(100,callback);
     },
     getAllNewsFrom: function (newerThan, callback) {
         var self = this
